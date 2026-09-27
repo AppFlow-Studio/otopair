@@ -42,7 +42,7 @@ const MAX_RESULTS = 12;
  *  dedicated search screen can render the full match list. */
 function scoreService(query: string, service: Service): number {
   const labelLower = (service.displayLabel ?? service.name).toLowerCase();
-  const descLower = service.description.toLowerCase();
+  const descLower = (service.description ?? "").toLowerCase();
   const aliases = service.searchAliases ?? [];
 
   if (labelLower === query) return 100;

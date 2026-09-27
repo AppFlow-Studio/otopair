@@ -646,13 +646,13 @@ export function SettingsContent({
 
         {/* ACCOUNT */}
         <SettingsCard style={styles.cardSpacing}>
-          {clerkUser?.passwordEnabled ? (
-            <SettingsRow
-              icon={<Lock size={18} color="#FFFFFF" />}
-              label="Change Password"
-              onPress={() => router.push("/settings/change-password")}
-            />
-          ) : null}
+          {/* Always shown: an account made with Google or Apple has no
+              password, and hiding the row left it no way to get one (#296). */}
+          <SettingsRow
+            icon={<Lock size={18} color="#FFFFFF" />}
+            label={clerkUser?.passwordEnabled ? "Change Password" : "Create Password"}
+            onPress={() => router.push("/settings/change-password")}
+          />
           <SettingsRow
             icon={<ShieldCheck size={18} color="#FFFFFF" />}
             label="Two-Factor Authentication"

@@ -64,3 +64,19 @@ export function useNotificationsFromConvex() {
     resolve,
   };
 }
+
+/**
+ * Just the badge number.
+ *
+ * Home and Bookings render a dot when this is non-zero and never touch the
+ * rows, but they used to call `useNotificationsFromConvex`, which also
+ * subscribes to `getMyNotifications` — up to 50 rows, each enriched
+ * server-side with its booking, vehicle and shop. That made both screens
+ * re-render whenever any notification changed, including a `read_at` flip
+ * caused by opening the sheet. The feed itself is still subscribed where it
+ * is actually read (the always-mounted `NotificationsSheet`), so this costs
+ * no extra socket traffic.
+ */
+export function useUnreadNotificationCount(): number {
+  return useQuery(api.notifications.getMyUnreadCount) ?? 0;
+}

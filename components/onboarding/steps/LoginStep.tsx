@@ -31,6 +31,7 @@ import { Mail } from "lucide-react-native";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";
 import { api } from "@/convex/_generated/api";
+import { isSessionExistsError } from "@/lib/auth-routing";
 import { ForgotPasswordFlow } from "./ForgotPasswordFlow";
 import { OnboardingSurfaceColors } from "../onboardingColors";
 
@@ -57,6 +58,8 @@ export function LoginStep({ onBack }: LoginStepProps) {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState<"google" | "apple" | "email" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Neutral, non-error message — e.g. after a password reset hands back here.
+  const [notice, setNotice] = useState<string | null>(null);
   const [showEmailForm, setShowEmailForm] = useState(false);
   const [showForgotPasswordFlow, setShowForgotPasswordFlow] = useState(false);
   const explicitLoginNavigationStartedRef = useRef(false);
@@ -149,10 +152,28 @@ export function LoginStep({ onBack }: LoginStepProps) {
     }
   };
 
+  // Clerk says this device is already signed in. It is telling the truth: this
+  // was observed on a real, working account whose setup was unfinished, so the
+  // app had routed a logged-in user back through onboarding to this screen.
+  // Printing the raw "You're already signed in." stranded them — every button
+  // failed the same way. Treat it as the successful login it is and route on,
+  // exactly like the path above; LoginMethodsStep and EmailPasswordLoginStep
+  // already do the same. Never sign the user out here: that would discard a
+  // good session.
+  const continueWithExistingSession = async () => {
+    setIsNewUser(false);
+    setIsAuthenticated(true);
+    explicitLoginNavigationStartedRef.current = true;
+    await navigateAfterLogin();
+  };
+
   const handleOAuthLogin = async (strategy: "google" | "apple") => {
-    if (loading) return;
+    // Wait for Clerk to load, as handleEmailLogin already does, so SSO never
+    // starts against a half-initialised client.
+    if (!isLoaded || loading) return;
     setLoading(strategy);
     setError(null);
+    setNotice(null);
 
     try {
       const ssoStrategy = strategy === "google" ? "oauth_google" : "oauth_apple";
@@ -178,6 +199,10 @@ export function LoginStep({ onBack }: LoginStepProps) {
       }
     } catch (err) {
       explicitLoginNavigationStartedRef.current = false;
+      if (isSessionExistsError(err)) {
+        await continueWithExistingSession();
+        return;
+      }
       const message = err instanceof Error ? err.message : "Authentication failed";
       setError(message);
     } finally {
@@ -189,6 +214,7 @@ export function LoginStep({ onBack }: LoginStepProps) {
     if (!isLoaded || !signIn || loading) return;
     setLoading("email");
     setError(null);
+    setNotice(null);
 
     try {
       await signIn.create({
@@ -216,23 +242,15 @@ export function LoginStep({ onBack }: LoginStepProps) {
       await navigateAfterLogin();
     } catch (err: any) {
       explicitLoginNavigationStartedRef.current = false;
+      if (isSessionExistsError(err)) {
+        await continueWithExistingSession();
+        return;
+      }
       const message = err?.errors?.[0]?.longMessage || err?.errors?.[0]?.message || err?.message || "Unable to sign in";
       setError(message);
     } finally {
       setLoading(null);
     }
-  };
-
-  const handlePasswordResetAuthenticated = async () => {
-    try {
-      await ensureConvexUserWithRetry();
-    } catch (e) {
-      console.error("Failed to ensure Convex user after password reset", e);
-    }
-    setIsNewUser(false);
-    setIsAuthenticated(true);
-    explicitLoginNavigationStartedRef.current = true;
-    await navigateAfterLogin();
   };
 
   const canSubmitEmail = email.trim().length > 0 && password.length > 0;
@@ -246,7 +264,18 @@ export function LoginStep({ onBack }: LoginStepProps) {
           setShowEmailForm(true);
           setError(null);
         }}
-        onAuthenticated={handlePasswordResetAuthenticated}
+        onPasswordReset={(resetEmail, passwordChanged) => {
+          setShowForgotPasswordFlow(false);
+          setShowEmailForm(true);
+          setError(null);
+          if (resetEmail) setEmail(resetEmail);
+          setPassword("");
+          setNotice(
+            passwordChanged
+              ? "Password updated. Log in with your new password."
+              : "You're verified. Log in to continue.",
+          );
+        }}
       />
     );
   }
@@ -355,6 +384,7 @@ export function LoginStep({ onBack }: LoginStepProps) {
                 accessibilityRole="button"
                 onPress={() => {
                   setError(null);
+                  setNotice(null);
                   setShowForgotPasswordFlow(true);
                 }}
                 style={styles.forgotPasswordButton}
@@ -377,6 +407,7 @@ export function LoginStep({ onBack }: LoginStepProps) {
             </View>
           )}
 
+          {notice ? <Text style={styles.noticeText}>{notice}</Text> : null}
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
         </ScrollView>
 
@@ -490,6 +521,14 @@ const styles = StyleSheet.create({
     color: OnboardingSurfaceColors.linkText,
   },
   emailSubmitContainer: { marginTop: 0 },
+  noticeText: {
+    textAlign: "center",
+    color: BrandColors.primary,
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.medium,
+    marginTop: Spacing.md,
+    paddingHorizontal: Spacing["2xl"],
+  },
   errorText: {
     textAlign: "center",
     color: "#DC2626",

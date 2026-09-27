@@ -25,6 +25,7 @@ import { Button, GhostButton, Text } from "@/components/shared-ui";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { BrandColors, BorderRadius, Spacing } from "@/constants/theme";
+import { formatServiceDisplayNames } from "@/utils/serviceDisplayName";
 
 interface Props {
   bookingId: Id<"bookings">;
@@ -226,7 +227,7 @@ export function RescheduleDecisionContent({ bookingId, onClose }: Props) {
           <View style={styles.summaryRow}>
             <Wrench size={18} color={BrandColors.primary} strokeWidth={2} />
             <Text size="md" color={BrandColors.primary}>
-              {booking.serviceNames.join(", ")}
+              {formatServiceDisplayNames(booking.serviceNames).join(", ")}
             </Text>
           </View>
         ) : null}

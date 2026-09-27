@@ -4,7 +4,7 @@
  * PURPOSE: Sticky footer component for booking flow pages.
  *          Displays primary action button with optional total amount.
  *
- * USED IN: booking-details.tsx, payment.tsx
+ * USED IN: payment.tsx
  *
  * PROPS:
  *   - buttonText (string): Primary button text

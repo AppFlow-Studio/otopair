@@ -67,6 +67,7 @@ import {
   type ReceiptPayload,
 } from "@/components/receipts/ReceiptContent";
 import { ReceiptSkeleton } from "@/components/receipts/ReceiptSkeleton";
+import { formatServiceDisplayNames } from "@/utils/serviceDisplayName";
 
 function formatUsd(cents: number | undefined | null): string {
   const v = ((cents ?? 0) / 100).toFixed(2);
@@ -1438,7 +1439,7 @@ function ReauthView({
   // is needed — rather than a dead-end message, show a calm confirmation banner
   // over the booking's details so the tap still lands somewhere useful.
   if (!stillReauth) {
-    const services = bookingInfo?.serviceNames ?? [];
+    const services = formatServiceDisplayNames(bookingInfo?.serviceNames);
     const whenLabel = formatApptWhen(
       bookingInfo?.scheduledDate,
       bookingInfo?.scheduledTime,
@@ -2006,7 +2007,6 @@ const styles = StyleSheet.create({
   partJustification: {
     fontSize: 12,
     color: SemanticColors.warningAmber,
-    fontStyle: "italic",
     marginTop: 4,
   },
   partTotal: { fontSize: 15, color: BrandColors.primary, marginLeft: Spacing.md },
@@ -2025,7 +2025,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     color: SemanticColors.textSecondary,
-    fontStyle: "italic",
   },
 
   // ── Mechanic scope photos ─────────────────────────────────────────────

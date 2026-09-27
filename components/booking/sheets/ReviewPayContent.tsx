@@ -55,6 +55,7 @@ import { useMechanicStore } from "@/stores/useMechanicStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
 import { useShopStore } from "@/stores/useShopStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
+import { formatServiceDisplayName } from "@/utils/serviceDisplayName";
 
 // ============================================================================
 // TYPES
@@ -948,7 +949,7 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
                       <View key={`${service.id}-${part.part_id}-${partIdx}`} style={styles.breakdownRow}>
                         <View style={styles.breakdownLabel}>
                           <Text size="sm" weight="regular" color="#6B7280">
-                            {part.name} (Part){qtyLabel}
+                            {formatServiceDisplayName(part.name)} (Part){qtyLabel}
                             {unitLabel}
                           </Text>
                           {/* DEV-only: surface which part the 7-layer selector
@@ -1281,7 +1282,6 @@ const styles = StyleSheet.create({
   },
   diagnosticNotes: {
     marginTop: Spacing.xs,
-    fontStyle: "italic",
   },
 
   // Service Card

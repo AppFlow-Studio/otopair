@@ -1,7 +1,8 @@
 /**
  * ChangePasswordScreen
  *
- * PURPOSE: Allows users to update their account password.
+ * PURPOSE: Allows users to update their account password — or, for an account
+ *          made with Google / Apple that has none, to create one (#296).
  *          Features a glass-morphism card, password strength meter, and validation.
  *
  * USED IN: app/(main-tabs)/settings/index.tsx (via navigation)
@@ -35,6 +36,8 @@ import { useUser } from '@clerk/clerk-expo';
 
 import { BrandColors, Spacing, Text, BlurHeaderOverlay } from '@/components/shared-ui';
 import { getSheetContentPadding } from '@/constants/theme';
+import { useAccountPassword } from '@/hooks/useAccountPassword';
+import { canSubmitAccountPassword, getAccountPasswordMode } from '@/lib/account-password';
 
 // Initialize zxcvbn options
 zxcvbnOptions.setOptions({
@@ -48,6 +51,12 @@ export default function ChangePasswordScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user, isLoaded } = useUser();
+  const { save, verifyCodeAndSave, resendEmailCode } = useAccountPassword();
+  // Google / Apple accounts have no password; they create one, with no
+  // "current password" to type.
+  const mode = getAccountPasswordMode(user?.passwordEnabled);
+  const provider = user?.externalAccounts?.[0]?.provider;
+  const providerName = provider === 'google' ? 'Google' : provider === 'apple' ? 'Apple' : null;
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -60,6 +69,10 @@ export default function ChangePasswordScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  // Set when Clerk wants this session re-verified before creating a password:
+  // a 6-digit code went to this address.
+  const [codeSentTo, setCodeSentTo] = useState<string | null>(null);
+  const [code, setCode] = useState('');
 
   // Password strength logic using zxcvbn-ts
   const strength = useMemo(() => {
@@ -96,7 +109,38 @@ export default function ChangePasswordScreen() {
   const passwordsMatch = newPassword === confirmPassword;
   const isPasswordLongEnough = newPassword.length >= 8;
   const isSameAsCurrent = newPassword === currentPassword && currentPassword !== '';
-  const canSubmit = currentPassword && newPassword && confirmPassword && passwordsMatch && isPasswordLongEnough && !isSameAsCurrent && !isSubmitting && isLoaded;
+  const canSubmit =
+    canSubmitAccountPassword({ mode, currentPassword, newPassword, confirmPassword }) &&
+    !isSubmitting &&
+    isLoaded &&
+    (codeSentTo === null || code.length === 6);
+
+  const finishSaved = () => {
+    setSuccessMessage(
+      mode === 'create'
+        ? 'Password created. You can now also log in with your email and this password.'
+        : 'Password updated successfully.'
+    );
+    setCurrentPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
+    setCodeSentTo(null);
+    setCode('');
+    // Navigate back after a short delay to show success
+    setTimeout(() => {
+      router.back();
+    }, 1500);
+  };
+
+  const handleResendCode = async () => {
+    setErrorMessage(null);
+    try {
+      setCodeSentTo(await resendEmailCode());
+      setCode('');
+    } catch (err: any) {
+      setErrorMessage(err?.errors?.[0]?.longMessage || err?.message || 'Unable to send a code. Please try again.');
+    }
+  };
 
   const handleUpdatePassword = async () => {
     if (!canSubmit || !user) return;
@@ -106,22 +150,17 @@ export default function ChangePasswordScreen() {
     setSuccessMessage(null);
 
     try {
-      await user.updatePassword({
-        currentPassword,
-        newPassword,
-      });
-      
-      setSuccessMessage('Password updated successfully.');
-      
-      // Clear fields
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
-      
-      // Navigate back after a short delay to show success
-      setTimeout(() => {
-        router.back();
-      }, 1500);
+      if (codeSentTo !== null) {
+        await verifyCodeAndSave({ code, newPassword });
+        finishSaved();
+        return;
+      }
+      const result = await save({ mode, currentPassword, newPassword });
+      if (result.status === 'needsEmailCode') {
+        setCodeSentTo(result.email);
+        return;
+      }
+      finishSaved();
     } catch (err: any) {
       const message = err?.errors?.[0]?.longMessage 
         || err?.errors?.[0]?.message 
@@ -135,7 +174,7 @@ export default function ChangePasswordScreen() {
 
   return (
     <View style={[styles.screen, { backgroundColor: BrandColors.background }]}>
-      <BlurHeaderOverlay title="Change Password" />
+      <BlurHeaderOverlay title={mode === 'create' ? 'Create Password' : 'Change Password'} />
 
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -153,8 +192,12 @@ export default function ChangePasswordScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.heroArea}>
-            <Text weight="bold" style={styles.heroTitle}>New Password</Text>
-            <Text size="md" color="#86868b">Choose a strong password to protect your account.</Text>
+            <Text weight="bold" style={styles.heroTitle}>{mode === 'create' ? 'Create a Password' : 'New Password'}</Text>
+            <Text size="md" color="#86868b">
+              {mode === 'create'
+                ? `You signed up with ${providerName ?? 'a social account'}, so this account has no password yet. Create one to also log in with your email.`
+                : 'Choose a strong password to protect your account.'}
+            </Text>
           </View>
 
           {/* Feedback Messages */}
@@ -172,36 +215,40 @@ export default function ChangePasswordScreen() {
 
           {/* Form Card */}
           <View style={styles.glassCard}>
-            {/* Current Password */}
-            <View style={styles.formRow}>
-              <View style={styles.inputWrapper}>
-                <Text weight="medium" size="xs" color="#86868b" style={styles.rowLabel}>
-                  CURRENT PASSWORD*
-                </Text>
-                <View style={styles.inputContainer}>
-                  <TextInput
-                    style={styles.rowInput}
-                    value={currentPassword}
-                    onChangeText={setCurrentPassword}
-                    placeholder="Enter current password"
-                    placeholderTextColor="#aeaeb2"
-                    secureTextEntry={!showCurrent}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    textContentType="password"
-                    // @ts-ignore
-                    autoComplete="password"
-                    // @ts-ignore
-                    importantForAutofill="yes"
-                  />
-                  <Pressable onPress={() => setShowCurrent(!showCurrent)} style={styles.eyeIcon}>
-                    {showCurrent ? <EyeOff size={20} color="#86868b" /> : <Eye size={20} color="#86868b" />}
-                  </Pressable>
+            {mode === 'change' && (
+              <>
+                {/* Current Password */}
+                <View style={styles.formRow}>
+                  <View style={styles.inputWrapper}>
+                    <Text weight="medium" size="xs" color="#86868b" style={styles.rowLabel}>
+                      CURRENT PASSWORD*
+                    </Text>
+                    <View style={styles.inputContainer}>
+                      <TextInput
+                        style={styles.rowInput}
+                        value={currentPassword}
+                        onChangeText={setCurrentPassword}
+                        placeholder="Enter current password"
+                        placeholderTextColor="#aeaeb2"
+                        secureTextEntry={!showCurrent}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        textContentType="password"
+                        // @ts-ignore
+                        autoComplete="password"
+                        // @ts-ignore
+                        importantForAutofill="yes"
+                      />
+                      <Pressable onPress={() => setShowCurrent(!showCurrent)} style={styles.eyeIcon}>
+                        {showCurrent ? <EyeOff size={20} color="#86868b" /> : <Eye size={20} color="#86868b" />}
+                      </Pressable>
+                    </View>
+                  </View>
                 </View>
-              </View>
-            </View>
 
-            <View style={styles.separator} />
+                <View style={styles.separator} />
+              </>
+            )}
 
             {/* New Password */}
             <View style={styles.formRow}>
@@ -304,6 +351,38 @@ export default function ChangePasswordScreen() {
 
           <View style={{ flex: 1 }} />
 
+          {codeSentTo !== null && (
+            <View style={[styles.glassCard, styles.codeCard]}>
+              <View style={styles.formRow}>
+                <View style={styles.inputWrapper}>
+                  <Text weight="medium" size="xs" color="#86868b" style={styles.rowLabel}>
+                    VERIFY YOUR EMAIL
+                  </Text>
+                  <Text size="sm" color="#86868b" style={styles.codeHint}>
+                    {`We emailed a 6-digit code to ${codeSentTo}. Enter it to create your password.`}
+                  </Text>
+                  <TextInput
+                    style={styles.rowInput}
+                    value={code}
+                    onChangeText={(value) => setCode(value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="6-digit code"
+                    placeholderTextColor="#aeaeb2"
+                    keyboardType="number-pad"
+                    textContentType="oneTimeCode"
+                    // @ts-ignore
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                  />
+                  <Pressable onPress={handleResendCode} disabled={isSubmitting} hitSlop={8}>
+                    <Text size="sm" weight="semiBold" color={BrandColors.secondary} style={styles.codeHint}>
+                      Resend code
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+            </View>
+          )}
+
           {/* Submit Area */}
           <View style={styles.submitArea}>
             <Pressable
@@ -315,7 +394,9 @@ export default function ChangePasswordScreen() {
                 <ActivityIndicator color="#FFF" />
               ) : (
                 <Text weight="semiBold" size="md" color="#FFF">
-                  {successMessage ? 'Updated!' : 'Update password'}
+                  {mode === 'create'
+                    ? successMessage ? 'Created!' : codeSentTo !== null ? 'Verify & create password' : 'Create password'
+                    : successMessage ? 'Updated!' : 'Update password'}
                 </Text>
               )}
             </Pressable>
@@ -336,6 +417,13 @@ const styles = StyleSheet.create({
   },
   heroArea: {
     marginBottom: 32,
+  },
+  codeCard: {
+    marginTop: 20,
+  },
+  codeHint: {
+    marginTop: 6,
+    marginBottom: 6,
   },
   errorContainer: {
     backgroundColor: 'rgba(248, 113, 113, 0.1)',

@@ -23,7 +23,7 @@ export type TaxonomyTab =
 export const TABS: { key: TaxonomyTab; label: string; subtitle: string; order: number }[] = [
   { key: "routine_upkeep", label: "Routine", subtitle: "Fluids, filters, battery", order: 1 },
   { key: "tires_brakes", label: "Tires & Brakes", subtitle: "Tires, rotation, brakes", order: 2 },
-  { key: "major_service", label: "Scheduled service", subtitle: "Spark plugs, timing, fluids", order: 3 },
+  { key: "major_service", label: "Scheduled service", subtitle: "Spark plugs, drive belt, fluids", order: 3 },
   { key: "inspections", label: "Inspections", subtitle: "State, emissions, diagnostics", order: 4 },
 ];
 
@@ -262,15 +262,26 @@ const ENTRIES: TaxonomyEntry[] = [
     searchAliases: ["spark plugs", "plugs", "misfire", "tune up", "tune-up"],
   },
   {
+    // Slug stays `timing_belt` — it is the binding key for the catalog, the
+    // parts/labor references and the DB. Only what the customer reads changes.
+    // See utils/serviceDisplayName.ts.
     slug: "timing_belt",
-    label: "Timing belt replacement",
-    subtitle: "Replace the engine timing belt",
+    label: "Drive belt replacement",
+    subtitle: "Replace the engine drive belt",
     tab: "major_service",
     order: 2,
     estTimeLabel: "~5 hr",
     showsForLabel: "Belt-driven engines",
     applicability: { requires_timing_belt: true },
-    searchAliases: ["timing belt", "belt", "cam belt"],
+    // The old names stay searchable: a customer who knows the job as a timing
+    // or cam belt should still find it. Aliases are matched, never displayed.
+    searchAliases: [
+      "drive belt",
+      "serpentine belt",
+      "timing belt",
+      "belt",
+      "cam belt",
+    ],
   },
   {
     slug: "coolant_flush",

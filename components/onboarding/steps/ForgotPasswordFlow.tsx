@@ -1,5 +1,5 @@
 import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSignIn } from "@clerk/clerk-expo";
+import { useAuth, useSignIn } from "@clerk/clerk-expo";
 import { zxcvbn, zxcvbnOptions } from "@zxcvbn-ts/core";
 import * as zxcvbnCommonPackage from "@zxcvbn-ts/language-common";
 import {
@@ -76,17 +76,19 @@ type ResetPasswordFactorConfig =
 interface ForgotPasswordFlowProps {
   initialEmail?: string;
   onBackToLogin: () => void;
-  onAuthenticated: () => Promise<void>;
+  /** The flow finished and signed the user out; LoginStep takes it from here. */
+  onPasswordReset: (email: string | undefined, passwordChanged: boolean) => void;
 }
 
 export function ForgotPasswordFlow({
   initialEmail,
   onBackToLogin,
-  onAuthenticated,
+  onPasswordReset,
 }: ForgotPasswordFlowProps) {
   const insets = useSafeAreaInsets();
   const { height, width } = useWindowDimensions();
-  const { signIn, setActive, isLoaded } = useSignIn();
+  const { signIn, isLoaded } = useSignIn();
+  const { signOut } = useAuth();
 
   const [step, setStep] = useState<PasswordResetFlowStep>("method");
   const [method, setMethod] = useState<PasswordResetMethod>("email");
@@ -358,6 +360,23 @@ export function ForgotPasswordFlow({
     await sendResetCode("email", trimmedEmail);
   }
 
+  // The reset flow never leaves anyone signed in (#233). A reset — or a code
+  // Clerk accepts as a full sign-in — resolves to whichever account owns the
+  // email or number typed. For a tester with a number reused across test
+  // accounts, that silently signed them into a different, near-empty account,
+  // and it read as "my account is gone". Ending at the login screen makes
+  // them log in themselves, to the account they mean.
+  async function finishAtLogin(passwordChanged: boolean) {
+    try {
+      // Clears the session Clerk just created. Left alone, Clerk restores it
+      // as the signed-in session on the next launch.
+      await signOut();
+    } catch (e) {
+      console.warn("Password reset: signing out afterwards failed", e);
+    }
+    onPasswordReset(method === "email" ? email.trim() : undefined, passwordChanged);
+  }
+
   async function verifyCode(fullCode: string, requestId = codeRequestIdRef.current) {
     if (!isLoaded || !signIn || loading !== null) return;
 
@@ -378,9 +397,8 @@ export function ForgotPasswordFlow({
         return;
       }
 
-      if (result.status === "complete" && result.createdSessionId) {
-        await setActive?.({ session: result.createdSessionId });
-        await onAuthenticated();
+      if (result.status === "complete") {
+        await finishAtLogin(false);
         return;
       }
 
@@ -456,14 +474,10 @@ export function ForgotPasswordFlow({
         signOutOfOtherSessions: true,
       });
 
-      if (result.status === "complete" && result.createdSessionId) {
-        await setActive?.({ session: result.createdSessionId });
-        await onAuthenticated();
-        return;
-      }
-
-      if (result.status === "needs_second_factor") {
-        setError("Additional verification is required. Please log in with your new password.");
+      // Both mean the password has been changed; logging in is the way on
+      // from either, second factor included.
+      if (result.status === "complete" || result.status === "needs_second_factor") {
+        await finishAtLogin(true);
         return;
       }
 

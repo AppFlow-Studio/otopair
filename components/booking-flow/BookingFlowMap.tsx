@@ -31,6 +31,7 @@ import React, {
   useState,
 } from "react";
 import { AppState, Linking, Platform, Pressable, StyleSheet, View } from "react-native";
+import { useNavigation } from "expo-router";
 import MapView, {
   Circle,
   Marker,
@@ -38,6 +39,7 @@ import MapView, {
   type Region,
 } from "react-native-maps";
 import { Text } from "@/components/shared-ui";
+import { AndroidBlurTarget } from "@/components/shared-ui/AndroidBlurTarget";
 import { BrandColors, SemanticColors } from "@/constants/theme";
 import { useStagedLocation } from "@/hooks/useStagedLocation";
 import { useBookingStore } from "@/stores/useBookingStore";
@@ -104,6 +106,60 @@ interface BookingFlowMapContextValue {
    *  it is unmounted instead of rendering tiles nobody can see — one live
    *  Google Maps instance at a time instead of two or three. No-op on iOS. */
   registerLocalMap: () => () => void;
+  /** Android 12+: the shared map (and its skeleton) as a blur target, so a
+   *  screen's frosted sheet can really blur it the way the iOS sheet does.
+   *  Screens sit outside it, so their BlurViews never blur themselves. */
+  mapBlurTarget: React.RefObject<View | null>;
+}
+
+/** Ceiling on the wait for `transitionEnd`, in case it never arrives (a
+ *  screen mounted outside a transition, for one). The booking-flow stack's
+ *  fade is 320 ms, so this only bites when the event is missing. */
+const MAP_MOUNT_DEFER_MS = 400;
+
+/**
+ * True once it is cheap to create a MapView.
+ *
+ * Creating one costs ~650 ms of MAIN THREAD on a cold process: the Play
+ * services Maps renderer is loaded dynamically ("Making Creator dynamically"
+ * → "early loading native code" → "loadedRenderer"), and that is synchronous.
+ * Mounted during the screen transition it starves the animation — a trace of
+ * one booking entry showed a single 700 ms frame and Android's own "Skipped
+ * 39 frames" right in the middle of the fade.
+ *
+ * So the screens render their skeleton first, let the transition finish, and
+ * create the map after. Same total work, but none of it lands on the frames
+ * the user is watching move. iOS keeps the old immediate mount.
+ */
+export function useDeferredMapMount(): boolean {
+  const [ready, setReady] = useState(Platform.OS !== "android");
+  const navigation = useNavigation();
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      setReady(true);
+    };
+    // `transitionEnd` is the real signal. InteractionManager is not: the
+    // native stack runs its animation on the native side and never takes an
+    // interaction handle, so `runAfterInteractions` resolves on the next tick
+    // and defers nothing (measured — the map still initialised at +351 ms).
+    const unsubscribe = navigation.addListener?.(
+      // @ts-expect-error — native-stack emits this; the generic navigation
+      // type does not know about it.
+      "transitionEnd",
+      finish,
+    );
+    const timer = setTimeout(finish, MAP_MOUNT_DEFER_MS);
+    return () => {
+      done = true;
+      unsubscribe?.();
+      clearTimeout(timer);
+    };
+  }, [navigation]);
+  return ready;
 }
 
 const BookingFlowMapContext =
@@ -125,6 +181,11 @@ export function BookingFlowMapProvider({
   children: React.ReactNode;
 }) {
   const mapRef = useRef<MapView | null>(null);
+  // `mapBlurTarget` is temur-dev's — the Android frosted-glass sheets blur
+  // whatever this ref points at. `retry` is ours (#321): the fallback offers
+  // Open Settings, and an AppState resume re-asks for location, so a driver
+  // who grants permission mid-flow doesn't have to back out and start again.
+  const mapBlurTarget = useRef<View>(null);
   const {
     location: resolvedLocation,
     stage,
@@ -231,7 +292,21 @@ export function BookingFlowMapProvider({
     setLocalMapCount((n) => n + 1);
     return () => setLocalMapCount((n) => n - 1);
   }, []);
-  const renderProviderMap = !(Platform.OS === "android" && localMapCount > 0);
+  // Android: hold the provider's own map back until the first screen has had
+  // its effects run. The screens that bring their own map (select-services in
+  // peek mode, choose-mechanic) register during that pass, and without this
+  // the provider would render a MapView on the first commit and drop it on
+  // the next — a full Maps SDK init, on the main thread, for a view that is
+  // destroyed a frame later. The trace caught it throwing an internal NPE out
+  // of `MapView.doDestroy` on the way down.
+  const [settled, setSettled] = useState(Platform.OS !== "android");
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+    setSettled(true);
+  }, []);
+  const deferredReady = useDeferredMapMount();
+  const renderProviderMap =
+    settled && deferredReady && !(Platform.OS === "android" && localMapCount > 0);
   // Android: when the provider map comes back after a local map went away it
   // is a fresh MapView with no tiles for up to a second. Run the skeleton for
   // that mount too instead of showing the bare canvas through the sheet.
@@ -250,6 +325,7 @@ export function BookingFlowMapProvider({
       setMarkers: setMarkersCb,
       setShopPins: setShopPinsCb,
       registerLocalMap,
+      mapBlurTarget,
     }),
     [region, resolvedLocation, setInteractiveCb, setMarkersCb, setShopPinsCb, registerLocalMap],
   );
@@ -257,113 +333,115 @@ export function BookingFlowMapProvider({
   return (
     <BookingFlowMapContext.Provider value={value}>
       <View style={styles.root} pointerEvents="box-none">
-        {/* Persistent map behind every screen. Gesture props on the
-            MapView are ALWAYS on — react-native-maps has been spotty
-            about re-applying scrollEnabled/zoomEnabled mid-mount, so
-            we let the MapView always think it's interactive and gate
-            real touches at the wrapper's pointerEvents instead. When
-            `interactive` is false the wrapper blocks all touches, so
-            the MapView never sees a gesture; when true, touches
-            arrive on an already-configured MapView. */}
-        <View
-          style={StyleSheet.absoluteFill}
-          pointerEvents={interactive ? "auto" : "none"}
-        >
-          {region && renderProviderMap ? (
-            <MapView
-              ref={mapRef}
-              style={StyleSheet.absoluteFill}
-              provider={PROVIDER_DEFAULT}
-              initialRegion={region}
-              // Android: `onMapLoaded` means tiles are drawn, which is the
-              // right signal there — Google paints a blank beige canvas long
-              // before it has anything to show.
-              //
-              // iOS: `onMapLoaded` NEVER FIRES. It is implemented only in
-              // ios/AirGoogleMaps; ios/AirMaps (Apple Maps, which is what
-              // PROVIDER_DEFAULT resolves to here) does not emit it —
-              // mapViewDidFinishRenderingMap calls finishLoading and sends no
-              // event. So the skeleton could only ever clear via the 6s
-              // fallback, on every single map entry. That is bug #295, "the
-              // map takes forever to load": it was six seconds, every time.
-              //
-              // Apple Maps emits onMapReady from mapViewWillStartRenderingMap,
-              // which is the earliest honest signal that surface has.
-              onMapLoaded={() => setMapReady(true)}
-              onMapReady={
-                Platform.OS === "ios" ? () => setMapReady(true) : undefined
-              }
-              showsUserLocation
-              scrollEnabled
-              zoomEnabled
-              pitchEnabled={false}
-              rotateEnabled
-            >
-              {resolvedLocation?.accuracyMeters && resolvedLocation.source !== "precise" ? (
-                <Circle
-                  center={{
-                    latitude: resolvedLocation.latitude,
-                    longitude: resolvedLocation.longitude,
-                  }}
-                  radius={Math.max(resolvedLocation.accuracyMeters, 250)}
-                  fillColor="rgba(82, 153, 254, 0.16)"
-                  strokeColor="rgba(82, 153, 254, 0.35)"
-                  strokeWidth={1}
-                />
-              ) : null}
-              {markers.map((m) => (
-                <Marker
-                  key={m.id}
-                  coordinate={{ latitude: m.latitude, longitude: m.longitude }}
-                  title={m.title}
-                />
-              ))}
-              {shopPins.map((p) => (
-                <BookingFlowShopPinMarker
-                  key={p.shopId}
-                  pin={p}
-                />
-              ))}
-            </MapView>
-          ) : region ? null : (
-            <View style={[StyleSheet.absoluteFill, styles.fallback]}>
-              <Text size="sm" weight="semiBold" color={SemanticColors.textMuted}>
-                {stage === "unavailable"
-                  ? "Enable location to see nearby shops"
-                  : "Finding your location..."}
-              </Text>
-              {/* A sentence on a grey panel was the whole of it — no way
-                  forward, which is why refusing location read as "the map is
-                  broken". iOS only asks once, so Settings is the only route
-                  back; the resume listener above picks the grant up. */}
-              {stage === "unavailable" ? (
-                <Pressable
-                  onPress={() => void Linking.openSettings()}
-                  style={styles.fallbackAction}
-                  accessibilityRole="button"
-                  accessibilityLabel="Open Settings to enable location"
-                >
-                  <Text size="sm" weight="bold" color={BrandColors.secondary}>
-                    Open Settings
-                  </Text>
-                </Pressable>
-              ) : null}
-            </View>
-          )}
-        </View>
+        <AndroidBlurTarget targetRef={mapBlurTarget}>
+          {/* Persistent map behind every screen. Gesture props on the
+              MapView are ALWAYS on — react-native-maps has been spotty
+              about re-applying scrollEnabled/zoomEnabled mid-mount, so
+              we let the MapView always think it's interactive and gate
+              real touches at the wrapper's pointerEvents instead. When
+              `interactive` is false the wrapper blocks all touches, so
+              the MapView never sees a gesture; when true, touches
+              arrive on an already-configured MapView. */}
+          <View
+            style={StyleSheet.absoluteFill}
+            pointerEvents={interactive ? "auto" : "none"}
+          >
+            {region && renderProviderMap ? (
+              <MapView
+                ref={mapRef}
+                style={StyleSheet.absoluteFill}
+                provider={PROVIDER_DEFAULT}
+                initialRegion={region}
+                // Android: `onMapLoaded` means tiles are drawn, which is the
+                // right signal there — Google paints a blank beige canvas long
+                // before it has anything to show.
+                //
+                // iOS: `onMapLoaded` NEVER FIRES. It is implemented only in
+                // ios/AirGoogleMaps; ios/AirMaps (Apple Maps, which is what
+                // PROVIDER_DEFAULT resolves to here) does not emit it —
+                // mapViewDidFinishRenderingMap calls finishLoading and sends no
+                // event. So the skeleton could only ever clear via the 6s
+                // fallback, on every single map entry. That is bug #295, "the
+                // map takes forever to load": it was six seconds, every time.
+                //
+                // Apple Maps emits onMapReady from mapViewWillStartRenderingMap,
+                // which is the earliest honest signal that surface has.
+                onMapLoaded={() => setMapReady(true)}
+                onMapReady={
+                  Platform.OS === "ios" ? () => setMapReady(true) : undefined
+                }
+                showsUserLocation
+                scrollEnabled
+                zoomEnabled
+                pitchEnabled={false}
+                rotateEnabled
+              >
+                {resolvedLocation?.accuracyMeters && resolvedLocation.source !== "precise" ? (
+                  <Circle
+                    center={{
+                      latitude: resolvedLocation.latitude,
+                      longitude: resolvedLocation.longitude,
+                    }}
+                    radius={Math.max(resolvedLocation.accuracyMeters, 250)}
+                    fillColor="rgba(82, 153, 254, 0.16)"
+                    strokeColor="rgba(82, 153, 254, 0.35)"
+                    strokeWidth={1}
+                  />
+                ) : null}
+                {markers.map((m) => (
+                  <Marker
+                    key={m.id}
+                    coordinate={{ latitude: m.latitude, longitude: m.longitude }}
+                    title={m.title}
+                  />
+                ))}
+                {shopPins.map((p) => (
+                  <BookingFlowShopPinMarker
+                    key={p.shopId}
+                    pin={p}
+                  />
+                ))}
+              </MapView>
+            ) : region ? null : (
+              <View style={[StyleSheet.absoluteFill, styles.fallback]}>
+                <Text size="sm" weight="semiBold" color={SemanticColors.textMuted}>
+                  {stage === "unavailable"
+                    ? "Enable location to see nearby shops"
+                    : "Finding your location..."}
+                </Text>
+                {/* A sentence on a grey panel was the whole of it — no way
+                    forward, which is why refusing location read as "the map is
+                    broken". iOS only asks once, so Settings is the only route
+                    back; the resume listener above picks the grant up. */}
+                {stage === "unavailable" ? (
+                  <Pressable
+                    onPress={() => void Linking.openSettings()}
+                    style={styles.fallbackAction}
+                    accessibilityRole="button"
+                    accessibilityLabel="Open Settings to enable location"
+                  >
+                    <Text size="sm" weight="bold" color={BrandColors.secondary}>
+                      Open Settings
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
+            )}
+          </View>
 
-        {/* Above the map, below the screens. `pointerEvents="none"`
-            inside `MapSkeleton` keeps it out of the touch path, so a
-            late `onMapReady` can't strand gestures behind it.
+          {/* Above the map, below the screens. `pointerEvents="none"`
+              inside `MapSkeleton` keeps it out of the touch path, so a
+              late `onMapReady` can't strand gestures behind it.
 
-            Gated on HAVING a region, not just on readiness. With no region
-            the branch above already renders the staged-location fallback
-            ("Enable location…" / "Finding your location…"), and `region &&
-            mapReady` can never become true without one — so the old
-            condition left the skeleton shimmering permanently on top of
-            that message. Skeleton is for "map is coming"; the fallback is
-            for "there is no map to come". */}
-        {!region || mapReady || !renderProviderMap ? null : <MapSkeleton />}
+              Gated on HAVING a region, not just on readiness. With no region
+              the branch above already renders the staged-location fallback
+              ("Enable location…" / "Finding your location…"), and `region &&
+              mapReady` can never become true without one — so the old
+              condition left the skeleton shimmering permanently on top of
+              that message. Skeleton is for "map is coming"; the fallback is
+              for "there is no map to come". */}
+          {!region || mapReady || !renderProviderMap ? null : <MapSkeleton />}
+        </AndroidBlurTarget>
 
         {/* Children (the booking-flow Stack) wrapped in a controlled
             pointerEvents layer. When the map is interactive, this

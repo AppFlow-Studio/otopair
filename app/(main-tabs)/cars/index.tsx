@@ -114,6 +114,7 @@ import { useVehicleReadiness } from "@/hooks/useVehicleReadiness";
 import { ChevronRight, ScanLine, Wrench } from "lucide-react-native";
 import { useCoachAnchor } from "@/components/coach/useCoachAnchor";
 import { titleCaseVehicleName as titleCase } from '@/lib/vehicleName';
+import { formatServiceDisplayNames } from "@/utils/serviceDisplayName";
 
 /**
  * The floating tab bar's own height above the safe-area inset, measured off
@@ -1446,7 +1447,7 @@ export default function CarsHomeScreen() {
       )
       .map((r) => ({
         id: String(r._id),
-        services: (r.serviceNames as string[] | undefined) ?? [],
+        services: formatServiceDisplayNames(r.serviceNames as string[] | undefined),
         completedAt:
           (r.completed_at_ms as number | undefined) ??
           (r.completed_at as number | undefined) ??

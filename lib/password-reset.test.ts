@@ -159,3 +159,14 @@ test("getPasswordResetTimeRemaining derives seconds from an absolute deadline", 
   assert.equal(getPasswordResetTimeRemaining(2000, 1000), 1);
   assert.equal(getPasswordResetTimeRemaining(2500, 1000), 2);
 });
+
+test("getPasswordResetErrorMessage points a Google/Apple account at its sign-in button and Settings (#296)", () => {
+  assert.equal(
+    getPasswordResetErrorMessage(
+      { errors: [{ code: "strategy_for_user_invalid", message: "The verification strategy is not valid for this account" }] },
+      "fallback",
+      { method: "email", phase: "send" }
+    ),
+    "This account uses Google or Apple sign-in. Log in with that button, then create a password in Settings."
+  );
+});

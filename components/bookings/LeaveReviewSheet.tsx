@@ -38,6 +38,7 @@ import { ChevronLeft, Star } from "lucide-react-native";
 
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
+import { useSheetFloatBottom } from "@/hooks/useSheetFloatBottom";
 import { Text } from "@/components/shared-ui";
 import { BrandColors } from "@/constants/theme";
 import { OfflineActionsNotice } from "@/components/connection/OfflineActionsNotice";
@@ -89,6 +90,7 @@ interface Props {
 export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
   ({ onClose, onSubmitted }, ref) => {
     const sheetRef = React.useRef<FloatingSheetRef>(null);
+    const floatBottom = useSheetFloatBottom();
     const insets = useSafeAreaInsets();
     const { height: screenHeight } = useWindowDimensions();
     const [booking, setBooking] = useState<Booking | null>(null);
@@ -358,6 +360,14 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
       return expanded > resting + 24 ? [resting, expanded] : [resting];
     }, [screenHeight, insets.top, mechanicAvailable, showMechanicStep]);
 
+    /* Merge note (temur-dev, 2026-09-27): `keyboardToolbar` and deliberately
+       NOT `liftWithKeyboard`, which temur-dev reintroduced here. Lifting a
+       ~648pt sheet by a ~336pt keyboard needs ~1000pt on an ~874pt screen, so
+       the sheet's own top — step bar and Back — left the display. That is
+       #341; the aware scroll view below moves the focused FIELD instead, which
+       costs nothing off the top.
+       `floatBottom` IS taken from temur-dev — it is Android-nav-bar aware and
+       strictly better than the hardcoded 12 it replaces. */
     return (
       <FloatingSheet
         ref={sheetRef}
@@ -365,7 +375,7 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
         onClose={handleClose}
         showBackdrop
         keyboardToolbar
-        floatBottomInset={12}
+        floatBottomInset={floatBottom}
       >
         {/* Keyboard handling — the same shape that fixed #149 on the
             diagnostic sheet, which this is the sibling of.

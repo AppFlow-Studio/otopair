@@ -13,9 +13,11 @@
  *   - components/bookings/PendingQuoteCard.tsx (tire-quote bookings)
  */
 
-import React, { useEffect } from "react";
+import React, { useCallback } from "react";
 import { StyleSheet, View } from "react-native";
+import { useFocusEffect } from "expo-router";
 import Animated, {
+  cancelAnimation,
   Easing,
   useAnimatedStyle,
   useSharedValue,
@@ -100,16 +102,28 @@ export function BookingProgressBar({
  */
 function SegmentSweep() {
   const progress = useSharedValue(0);
-  useEffect(() => {
-    progress.value = withRepeat(
-      withTiming(1, {
-        duration: 2400,
-        easing: Easing.inOut(Easing.ease),
-      }),
-      -1,
-      false,
-    );
-  }, [progress]);
+  // Focus-scoped, not mount-scoped. Bookings stays mounted behind Home once
+  // visited, and this sweep animates a LAYOUT prop (`width`), so every frame
+  // it ran off-screen cost a shadow-tree commit per live booking card.
+  // Starting from 0 on focus is what a fresh mount did anyway.
+  useFocusEffect(
+    useCallback(() => {
+      progress.set(
+        withRepeat(
+          withTiming(1, {
+            duration: 2400,
+            easing: Easing.inOut(Easing.ease),
+          }),
+          -1,
+          false,
+        ),
+      );
+      return () => {
+        cancelAnimation(progress);
+        progress.set(0);
+      };
+    }, [progress]),
+  );
 
   const animatedStyle = useAnimatedStyle(() => ({
     width: `${progress.value * 100}%`,

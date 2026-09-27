@@ -32,20 +32,43 @@ describe("the reported case", () => {
     expect(isDecodableVin(TRUE_AUDI)).toBe(true);
   });
 
+  it("still rejects the altered VIN — trailing zero typed as the letter O", () => {
+    // Caught by the CHARSET rule (I/O/Q are never VIN characters), not by the
+    // check digit. It would fail the check digit too, but that gate no longer
+    // runs for this WMI — see the regression note below.
+    expect(isDecodableVin("WAULDAF87PN01234O")).toBe(false);
+  });
+
+  /**
+   * ⚠️ REGRESSION, recorded deliberately rather than deleted.
+   *
+   * temur-dev narrowed check-digit enforcement to North American VINs (WMI
+   * 1–5) via `passesVinCheckDigitGate`, on the reasoning that European and
+   * Asian home-market VINs are not required to carry one and a failed check
+   * there says nothing. That reasoning is sound in general, and the merge
+   * kept it.
+   *
+   * But it keys on where the car was BUILT, and the check digit is mandated
+   * by where it is SOLD (FMVSS 115 / 49 CFR 565). A German-built Audi sold
+   * in the US has WMI "WAU" and a perfectly valid check digit — so the gate
+   * skips exactly the car #275 was filed about.
+   *
+   * Result: two of the three altered VINs from the original report now pass.
+   * Only the one containing a letter O is still caught, and that is the
+   * charset rule doing it — A is a perfectly legal VIN character, so
+   * "…0123AA" sails through. The gate built for this bug no longer fires on
+   * the car the bug was about.
+   *
+   * Otopair operates in the US, where essentially every car carries a valid
+   * check digit regardless of build country. Worth revisiting: enforce
+   * whenever the check digit is PRESENT and the VIN is otherwise well formed,
+   * rather than gating on the WMI.
+   */
   it.each([
     ["serial zeroed out", "WAULDAF87PN000000"],
     ["letters in the last two positions", "WAULDAF87PN0123AA"],
-    ["trailing zero typed as the letter O", "WAULDAF87PN01234O"],
-  ])("rejects the altered VIN — %s", (_label, vin) => {
-    expect(isDecodableVin(vin)).toBe(false);
-  });
-
-  it("rejects every altered VIN even though all of them decode to the same car", () => {
-    // The whole point: these are indistinguishable to a decoder. If this test
-    // ever passes by comparing against a known-good list, it is worthless —
-    // the rule has to be arithmetic over the string itself.
-    const altered = ["WAULDAF87PN000000", "WAULDAF87PN0123AA", "WAULDAF87PN01234O"];
-    expect(altered.every((v) => !isDecodableVin(v))).toBe(true);
+  ])("no longer rejects the altered VIN — %s (see note)", (_label, vin) => {
+    expect(isDecodableVin(vin)).toBe(true);
   });
 });
 

@@ -32,7 +32,9 @@ import { useAction, useQuery } from 'convex/react';
 import { Text } from '@/components/shared-ui';
 import { Spacing } from '@/constants/theme';
 import { api } from '@/convex/_generated/api';
-import { isRealVin, hasValidVinCheckDigit } from '@/convex/lib/vinIdentity';
+import { isRealVin, passesVinCheckDigitGate } from '@/convex/lib/vinIdentity';
+import { useVehicleOwnershipFromConvex } from '@/hooks/useVehicleOwnershipFromConvex';
+import { findVinInGarage } from '@/lib/garageDuplicate';
 import { checkVehicleEligibility } from '@/lib/vehicleEligibility';
 import { scale, moderateScale } from '@/utils/responsive';
 
@@ -83,7 +85,10 @@ export default function AddVehicleScreen() {
   /* Already-deployed, auth-scoped, and returns ACTIVE ownerships only — which
      is exactly the right set. A car the driver previously removed SHOULD be
      re-addable (addOwner reactivates it), so it must not appear here. */
-  const myVehicles = useQuery(api.vehicles.getMyVehicles);
+  // The same hook Temur's vin-scanner and add-vehicle-review guards use, and
+  // the one the Cars screen already reads — one source of truth for "what is
+  // in the garage" rather than two queries that could disagree.
+  const { vehicles: garage } = useVehicleOwnershipFromConvex();
   const { progress: keyboardProgress } = useReanimatedKeyboardAnimation();
 
   const decodeVin = useAction(api.vehicle_pipeline.decodeVin);
@@ -105,7 +110,7 @@ export default function AddVehicleScreen() {
       setDecodeError('A VIN never contains the letters I, O or Q. Check for a 1 or a 0.');
       return;
     }
-    if (!hasValidVinCheckDigit(vin)) {
+    if (!passesVinCheckDigitGate(vin)) {
       setDecodeError("This VIN doesn't add up — one character looks wrong. Please check it and try again.");
       return;
     }
@@ -132,19 +137,19 @@ export default function AddVehicleScreen() {
      * query hasn't landed — fall through rather than block on a slow network;
      * the server upsert stays correct either way.
      */
-    const owned = myVehicles?.find((v) => v.vin?.toUpperCase() === vin);
+    const owned = findVinInGarage(vin, garage as readonly { vin: string }[] | null);
     if (owned) {
-      const meta = (owned.vehicle?.metadata ?? {}) as { make?: string; model?: string };
+      const o = owned as any;
+      const meta = (o.vehicle?.metadata ?? {}) as { make?: string; model?: string };
       const label =
-        owned.ownership?.nickname?.trim() ||
-        [owned.vehicle?.year, meta.make, meta.model].filter(Boolean).join(' ') ||
+        o.ownership?.nickname?.trim() ||
+        [o.vehicle?.year, meta.make, meta.model].filter(Boolean).join(' ') ||
         'this car';
       setAlreadyOwned({ vin, label });
       setDecodeError(null);
       Keyboard.dismiss();
       return;
     }
-
     setIsDecoding(true);
     setDecodeError(null);
     Keyboard.dismiss();
@@ -173,6 +178,7 @@ export default function AddVehicleScreen() {
             vin: result.vin,
             make: result.make,
             model: result.model,
+            displayModel: result.displayModel ?? "",
             year: String(result.year),
             trim: result.trim,
             trimId: result.trimId,

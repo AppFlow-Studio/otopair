@@ -21,6 +21,7 @@ import { Check } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
+import { useSheetFloatBottom } from "@/hooks/useSheetFloatBottom";
 import { Spacing } from "@/constants/theme";
 import { moderateScale, scale } from "@/utils/responsive";
 import { MonthYearPicker } from "./MonthYearPicker";
@@ -71,6 +72,7 @@ export function QuickCheckSheet({
   onSubmit: (id: string, answer: QuickCheckAnswer) => void;
 }) {
   const sheetRef = useRef<FloatingSheetRef>(null);
+  const floatBottom = useSheetFloatBottom();
   const [row, setRow] = useState<RowId | null>(null);
   const [month, setMonth] = useState<number | null>(null);
   const [year, setYear] = useState<number | null>(null);
@@ -151,7 +153,7 @@ export function QuickCheckSheet({
       snapHeights={[Math.min(SHEET_MAX, Math.max(SHEET_MIN, contentHeight + SHEET_CHROME))]}
       showBackdrop
       liftWithKeyboard
-      floatBottomInset={12}
+      floatBottomInset={floatBottom}
       onClose={onClose}
     >
       <ScrollView

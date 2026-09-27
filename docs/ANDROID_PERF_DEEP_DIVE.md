@@ -401,6 +401,155 @@ projection, `search.tsx` re-hydration (Waleed's uncommitted edit is in that
 file), and shortening the 320 ms fade that accommodates a shared-element
 morph that never runs.
 
+## 4.2 Home pass — shipped 2026-09-20 (Android only)
+
+The other half of §4's Phase 1. Android-gated where behaviour could differ,
+behaviour-neutral everywhere else.
+
+| Item | Where | Change |
+|---|---|---|
+| §2.2 Home compiler bail-out | `app/(main-tabs)/home/index.tsx` | the `initialInsetTopRef` lock is a lazy `useState`; the upcoming-booking comparator is a block instead of `\|\|` inside `\|\|`. **BAIL → OK, 267 memo slots** |
+| §2.3 coach registry | `components/coach/CoachContext.tsx` | `report()` publishes nothing unless a tour is running (unregisters still process) |
+| §2.5 unfrozen tabs | `app/(main-tabs)/_layout.tsx` | `freezeOnBlur` on the Tabs |
+| §2.5 infinite loops | `components/cars/MaintenanceTracker.tsx`, `components/bookings/BookingProgressBar.tsx` | five tier-label pulses share one focus-scoped driver instead of each building a `withRepeat` inside `useAnimatedStyle`; the Bookings layout-prop sweep is focus-scoped too |
+| §2.6 duplicate subscriptions | `hooks/useNotificationsFromConvex.ts` + Home + Bookings | new `useUnreadNotificationCount()`; the badge no longer drags in the whole enriched feed |
+| §2.6 store churn | `stores/useVehicleStore.ts` | `setVehiclesFromConvex` bails when the mapped result equals what is stored |
+| §2.6 duplicate cache writes | `lib/offlineSessionCache.ts` | one `JSON.stringify` + AsyncStorage write per payload, not per mounted hook |
+| §2.5 card copies | `components/home/VehicleMaintenanceCard.tsx` | the white→white `LinearGradient` is a `backgroundColor` (it was a native gradient view per card copy, and the card renders N+2) |
+
+### What the emulator says: nothing, and that is the finding
+
+Four paired samples per build (`18-flow-dbg` vs `20-home-dbg`), each a fresh
+install + force-stop + cold launch on the same signed-in account:
+
+| Home, per 10 s | before (4 samples) | after (4 samples) |
+|---|---|---|
+| idle, UI thread | 780 / 760 / 770 / 760 ms | 750 / 730 / 750 / 780 ms |
+| idle, JS thread | 0 ms | 0–10 ms |
+| scroll ×6, UI thread | 1010 / 1010 / 970 / 940 ms | 990 / 960 / 1070 / 1010 ms |
+| scroll ×6, JS thread | 230 / 210 / 190 / 210 ms | 200 / 190 / 240 / 180 ms |
+| idle after visiting Cars | 780 / 760 ms | 760 / 840 ms |
+
+The first paired round moved consistently in the right direction and the
+second did not reproduce it, which by this project's own rule (§9.3 of the
+plan: a verdict needs two rounds agreeing) means **no measurable change**.
+An earlier single run that appeared to halve Home's UI thread — 1,420 ms
+down to 780 ms — was a warm-state artefact, not the build: the same old
+build measured 750 ms and 1,600 ms in two different sessions.
+
+That is the expected result once you look at what the emulator is doing.
+Idle JS on this account is already **0 ms**, so auto-memoisation has no
+re-renders to skip; the coach storm fires during the card height animations,
+which need a second vehicle or a data change to trigger; and Android's
+bottom-tabs already detaches a blurred tab's views, so its loops were
+costing UI-thread mapper time but no frames. Every cost removed here is a
+cost this test environment does not generate: live Convex pushes, several
+vehicles, an account with an active tour, a device that keeps blurred tabs
+attached.
+
+So this pass is justified by what it removes, not by a number on this
+emulator, and it is worth re-measuring on a real phone with a busy account
+before claiming a user-visible win. It is also verified not to regress:
+same numbers within noise, and pixels below.
+
+### Pixels
+
+`capture_states.py` on both builds, `diff_states.py` between them:
+
+- **0 px changed:** `01_home_top`, `02_home_scroll3`, `03_bookings_top`,
+  `04_bookings_scroll1`, `05_cars_top`, `07_oto`, `08_booking_flow`.
+- 1–2 px vertical shift with 13–740 px residual: `02_home_scroll1/2`,
+  `06_cars_scroll1/2/3` — the scroll-offset artefact `SHIFT_TOLERANCE`
+  exists for, sub-pixel text at a different offset.
+
+`05_cars_top` at 0 px is the one that matters for the animation refactor:
+that screen carries the five pulsing tier dots, and the burst detector
+reports the same animated area on both builds (9,540 px before, 9,479 px
+after), so the dots still pulse and still pulse the same way. `capture_states`
+also walked Home → Bookings → Cars → Oto → booking flow on the new build and
+every screen rendered, which is the functional check on `freezeOnBlur`.
+
+### Still open on Home
+
+The coach anchors themselves (`useCoachAnchor`, `CoachTarget`) still bail the
+compiler on a ref written during render — cheap now that `report()` is gated.
+`VehicleMaintenanceCard` still renders one hidden full-card copy per vehicle
+forever to measure heights; unmounting them after the first measure needs a
+content-keyed invalidation or it goes stale, so it was left alone.
+`convex/shop_services.ts` still joins the full shop and service documents onto
+every row (§2.6) — **that file belongs to otopair-web**, which is the
+canonical source and rsyncs over this copy, so the projection has to be made
+there or it will be wiped.
+
+## 4.3 Frame-level trace of booking entry — 2026-09-20
+
+`scratchpad/deep/trace_entry.sh` + `analyze_trace.py`: `gfxinfo framestats`
+(per-frame phase breakdown), a 200 ms per-thread CPU timeline off
+`/proc/<pid>/task/*/stat`, and timestamped logcat, all anchored on the tap.
+
+**Environment note.** The Pixel AVD's Play services stopped serving location
+after a cold boot: `expo-location` rejects before it ever registers a request
+(`gps provider: ProviderRequest[OFF]`, `last location=null` on every
+provider), so the flow renders its no-location fallback and never mounts a
+map. `adb emu geo fix` does not help — nothing is listening. The traces below
+therefore ran on a **throwaway build** whose `useStagedLocation` publishes a
+fixed Staten Island position; that hack was never committed. It is also a
+live demonstration of crash-audit §6 #21: no fix means no booking flow at
+all, with no retry and no fallback.
+
+### What the trace found
+
+| | before | no create/destroy | + deferred mount |
+|---|---|---|---|
+| frames over 100 ms | 7 | 5 | **2** |
+| p90 frame | 104 ms | 117 ms | **50 ms** |
+| Maps SDK init starts | +390 ms (during the fade) | +351 ms (during the fade) | **+557 ms (after it)** |
+| provider map created then destroyed | yes, with an NPE | no | no |
+| tiles labeled | +2,230 ms | +1,964 ms | +2,167 ms |
+
+**1. A whole MapView was being created and thrown away.** The log has the
+entire arc: `MapsInitializer` at +390 ms, `Making Creator dynamically` →
+`early loading native code` → `loadedRenderer` (the Play services Maps
+renderer, loaded synchronously on the main thread), then at +625 ms
+`MapView: exception with destroying` — a `NullPointerException` out of
+`DeferredLifecycleHelper.onPause`, via `rnmaps MapView.doDestroy` ←
+`onDropViewInstance` ← Fabric's `deleteView`. That is the layout's map being
+dropped one commit after it was created, because the screens that bring their
+own map call `registerLocalMap` from an effect, and effects run after the
+provider has already rendered. Holding the provider's map back one commit
+removes it.
+
+**2. The remaining cost is one ~650 ms main-thread block, and it was landing
+inside the transition.** `Choreographer: Skipped 39 frames` sits right in the
+middle of the 320 ms fade, and the frame breakdown shows the time is not in
+any drawing phase — the frame simply starts ~650 ms after its intended vsync
+because the main thread is busy. Deferring the mount to `transitionEnd` moves
+that block onto a still screen behind the skeleton. The map appears ~200 ms
+later; the animation stops dropping frames.
+
+`InteractionManager.runAfterInteractions` is **not** usable for this: the
+native stack animates natively and never takes an interaction handle, so it
+resolved immediately and deferred nothing (measured — the map still
+initialised at +351 ms).
+
+### What is left on the entry path
+
+- **The Maps SDK load itself, ~205 ms of the block** (`+351 → +556 ms`:
+  creator, native code, renderer). It is once per process, so it is the
+  *first* booking entry that pays. Warming it off the critical path would
+  remove it from entry entirely, but react-native-maps exposes no
+  `MapsInitializer.initialize()` to JS — it needs a small native module, or
+  an off-screen MapView warmed during idle after boot, which costs memory.
+- **Heap growth of ~40 MB during the mount**, with two concurrent GCs logged
+  per entry. Fewer map instances already helps; `liteMode` on a backdrop map
+  would help more, at the cost of interactivity.
+- **The 320 ms fade** in `(booking-flow)/_layout.tsx` was sized for a
+  shared-element morph that never runs (Reanimated has that feature flagged
+  off). Shortening it is free perceived latency.
+- The traces are single runs. The mechanism findings are solid — a create and
+  destroy either happens or it does not — but the frame percentiles should be
+  re-measured in rounds before being quoted as a result.
+
 ## 5. Measuring the next pass
 
 The Pixel now runs `16-tree-dbg` (versionCode 14, key present, C4, the four

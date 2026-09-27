@@ -40,6 +40,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BackHandler, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { useOnboardingQuestion } from '@/hooks/useOnboardingQuestion';
+import { resolveSelectedOptionId } from '@/lib/onboarding-selected-option';
 // MVP-DISABLED: loyalty/rewards — re-enable post-launch
 // import { useMutation } from 'convex/react';
 // import { api } from '@/convex/_generated/api';
@@ -75,7 +76,11 @@ export function HeardAboutStep({ onNext, onBack, progress }: HeardAboutStepProps
   const { updateData, data } = useOnboardingStore();
   const { saveQuestionAnswer } = useOnboardingQuestion('heardAboutOtopair');
 
-  const [selected, setSelected] = useState<string | null>(data.heardAboutOtopair ?? null);
+  // The store can hold the option's label rather than its id by the time the
+  // user steps back here — see resolveSelectedOptionId.
+  const [selected, setSelected] = useState<string | null>(
+    resolveSelectedOptionId(FALLBACK_OPTIONS, data.heardAboutOtopair),
+  );
   // MVP-DISABLED: loyalty/rewards — re-enable post-launch
   // const [referralCode, setReferralCode] = useState<string>('');
   // const submitReferralCode = useMutation(api.referrals.submitCode);

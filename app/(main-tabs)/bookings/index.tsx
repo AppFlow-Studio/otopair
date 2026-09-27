@@ -10,7 +10,8 @@
  * progress bar (`BookingProgressBar`) at the top showing where the
  * booking sits in its lifecycle, so users can glance-track without
  * jumping tabs. History (completed + cancelled) lives at
- * Settings → My Garage → Booking History.
+ * Settings → My Garage → Booking History; a freshly cancelled booking also
+ * stays here for 24h as a "Cancelled" card (see useMyBookingsWithDetails).
  *
  * USED IN: app/(main-tabs)/bookings/_layout.tsx
  *
@@ -19,7 +20,7 @@
 import { Bell } from "lucide-react-native";
 import { ProfileInitialsButton } from "@/components/home/ProfileInitialsButton";
 import { useNotificationsSheetStore } from "@/stores/useNotificationsSheetStore";
-import { useNotificationsFromConvex } from "@/hooks/useNotificationsFromConvex";
+import { useUnreadNotificationCount } from "@/hooks/useNotificationsFromConvex";
 import { type Booking } from "@/components/bookings/BookingCard";
 import { UpcomingBookingCard } from "@/components/bookings/UpcomingBookingCard";
 import {
@@ -220,7 +221,7 @@ export default function BookingsScreen() {
   // the outbox while the customer is sitting on this screen watching the card
   // — without a bell here the notification is written and never seen.
   const openNotificationsSheet = useNotificationsSheetStore((s) => s.open);
-  const { unreadCount: notificationsUnreadCount } = useNotificationsFromConvex();
+  const notificationsUnreadCount = useUnreadNotificationCount();
   const hasUnreadNotifications = notificationsUnreadCount > 0;
 
   const toast = useToast();

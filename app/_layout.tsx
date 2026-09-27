@@ -1,16 +1,36 @@
 import { ClerkProvider, useAuth } from "@clerk/clerk-expo";
 import { StripeProvider } from "@stripe/stripe-react-native";
-// Persistent session: tokenCache uses expo-secure-store so auth survives app reload/restart
-import { tokenCache } from "@clerk/clerk-expo/token-cache";
+// Persistent session: the client token lives in expo-secure-store so auth
+// survives a restart. Stored exactly as @clerk/clerk-expo/token-cache stores it
+// (same key and keychain option), but a failed read no longer deletes it — see
+// lib/clerkCaches.ts (#188).
+import * as SecureStore from "expo-secure-store";
+import { createSafeTokenCache, guardClerkResourceStorage } from "@/lib/clerkCaches";
+// Offline startup. tokenCache alone does NOT let Clerk load without a network:
+// it only holds the session token that authenticates Clerk's API requests, and
+// on launch Clerk still has to fetch its environment + client before `isLoaded`
+// can flip. resourceCache persists those two resources, so an offline cold start
+// loads from disk in a "degraded" state instead of never loading at all — which
+// is what lets a signed-in user reach the session-cached offline mode
+// (lib/offlineSessionCache.ts) rather than stalling on app/index.
+import { resourceCache } from "@clerk/clerk-expo/resource-cache";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { DarkTheme, DefaultTheme, ThemeProvider } from "@react-navigation/native";
-import { Stack, useRootNavigationState, useSegments, type ErrorBoundaryProps } from "expo-router";
+import { Stack, useSegments, type ErrorBoundaryProps } from "expo-router";
 import { guardedRouter as router } from "@/lib/navigationLock";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
-import { ConvexReactClient, useQuery } from "convex/react";
-import { ConvexProviderWithClerk } from "convex/react-clerk";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { ConvexProviderWithAuth, ConvexReactClient, useConvexAuth, useQuery } from "convex/react";
+import {
+  type ReactNode,
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
 import { KeyboardProvider } from "react-native-keyboard-controller";
@@ -36,13 +56,24 @@ import { useAppFonts } from "@/hooks/use-fonts";
 import { useConsoleToConvex } from "@/hooks/useConsoleToConvex";
 import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";
 import { useNotificationHandler } from "@/hooks/useNotificationHandler";
+import { untilOnline, useConnection } from "@/hooks/useConnection";
+import {
+  CONVEX_AUTH_RETRY_MS,
+  TOKEN_FETCH_RETRY_FLOOR_MS,
+  isTokenFetchNetworkError,
+  shouldRecoverConvexAuth,
+} from "@/lib/connection/convexAuthRecovery";
 import { useRefreshPushToken } from "@/hooks/useRefreshPushToken";
 import { useOtopairDeepLinks } from "@/hooks/useOtopairDeepLinks";
+import { shouldHideSplash } from "@/lib/auth-routing";
 import { clearUserSessionState } from "@/lib/session-state";
 import { useAuthStore } from "@/stores/useAuthStore";
-import { CoachProvider } from "@/components/coach/CoachContext";
-import { CoachMarkHost } from "@/components/coach/CoachMarkHost";
-import { START_AT_HOME_ON_RELOAD } from "@/constants/devFlags";
+
+const tokenCache = createSafeTokenCache(SecureStore, {
+  keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK,
+});
+// Never saves Clerk's offline placeholder over the real cached client (#188).
+const guardedResourceCache = guardClerkResourceStorage(resourceCache);
 
 LogBox.ignoreLogs([
   /\[CONVEX M\([^\)]+\)\]/,
@@ -51,10 +82,6 @@ LogBox.ignoreLogs([
 ]);
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
-
-/** Longest the splash may stay up after fonts + auth are ready. Safety net for
- *  a routing path that never resolves; the normal hand-off is index unmounting. */
-const SPLASH_MAX_HOLD_MS = 4000;
 
 // Global error handler: log to Convex + show modal
 if (typeof global !== "undefined") {
@@ -87,14 +114,100 @@ function ConsoleToConvexLogger() {
   return null;
 }
 
+/**
+ * Convex only re-runs `client.setAuth` when the `fetchAccessToken` it holds
+ * changes identity. After a failed token fetch it marks the session logged out
+ * and never retries by itself (see lib/connection/convexAuthRecovery.ts, #269),
+ * so recovery works by handing it a new one: bumping `epoch` does exactly that.
+ */
+const ConvexAuthEpochContext = createContext<{ epoch: number; bump: () => void }>({
+  epoch: 0,
+  bump: () => {},
+});
+
+/**
+ * convex/react-clerk's own `useAuthFromClerk`, unchanged except that the
+ * recovery epoch is part of `fetchAccessToken`'s identity. Kept on the public
+ * ConvexProviderWithAuth API rather than reaching into ConvexProviderWithClerk.
+ */
+function useAuthFromClerk() {
+  const { isLoaded, isSignedIn, getToken, orgId, orgRole, sessionClaims } = useAuth();
+  const { epoch } = useContext(ConvexAuthEpochContext);
+  const fetchAccessToken = useCallback(
+    async ({ forceRefreshToken }: { forceRefreshToken: boolean }) => {
+      // A dead network is not an answer. Handing Convex "no token" logs the user
+      // out of it while Clerk still has them signed in, and every query then
+      // answers as if to a stranger — Home turned into a new account's (#269).
+      // So wait for the network and ask again; only a real refusal returns null.
+      for (;;) {
+        try {
+          if (sessionClaims?.aud === "convex") {
+            return await getToken({ skipCache: forceRefreshToken });
+          }
+          return await getToken({ template: "convex", skipCache: forceRefreshToken });
+        } catch (error) {
+          if (!isTokenFetchNetworkError(error)) return null;
+          await new Promise((resolve) => setTimeout(resolve, TOKEN_FETCH_RETRY_FLOOR_MS));
+          await untilOnline();
+        }
+      }
+    },
+    // Same deps as Convex's own, plus `epoch`. Clerk's Expo useAuth is not
+    // memoised, so listing getToken/sessionClaims would hand Convex a new
+    // function — and a full re-authentication — on every render. The disable
+    // also keeps the React Compiler off this hook, which is what we want: it
+    // would otherwise re-derive these deps and could make the function stable,
+    // silently switching recovery off.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [orgId, orgRole, epoch],
+  );
+  return useMemo(
+    () => ({ isLoading: !isLoaded, isAuthenticated: isSignedIn ?? false, fetchAccessToken }),
+    [isLoaded, isSignedIn, fetchAccessToken],
+  );
+}
+
+/** Re-authenticates Convex when it has dropped a user Clerk still has signed in. */
+function ConvexAuthRecovery() {
+  const { isSignedIn } = useAuth();
+  const { isLoading, isAuthenticated } = useConvexAuth();
+  const conn = useConnection();
+  const { bump } = useContext(ConvexAuthEpochContext);
+  const lastAttemptRef = useRef(0);
+  const dropped = shouldRecoverConvexAuth({
+    clerkSignedIn: isSignedIn === true,
+    convexLoading: isLoading,
+    convexAuthenticated: isAuthenticated,
+    online: conn === "online",
+  });
+
+  useEffect(() => {
+    if (!dropped) return;
+    // First attempt straight away; after that at most every CONVEX_AUTH_RETRY_MS,
+    // so a failure that keeps recurring cannot hammer the backend.
+    const wait = Math.max(0, lastAttemptRef.current + CONVEX_AUTH_RETRY_MS - Date.now());
+    const timer = setTimeout(() => {
+      lastAttemptRef.current = Date.now();
+      bump();
+    }, wait);
+    return () => clearTimeout(timer);
+  }, [dropped, bump]);
+
+  return null;
+}
+
 function ConvexClerkProvider({ children }: { children: ReactNode }) {
-  // Convex expects the Clerk useAuth hook that matches the provider
-  const auth = useAuth();
+  const [epoch, setEpoch] = useState(0);
+  const bump = useCallback(() => setEpoch((e) => e + 1), []);
+  const authEpoch = useMemo(() => ({ epoch, bump }), [epoch, bump]);
   return (
-    <ConvexProviderWithClerk client={convex} useAuth={() => auth}>
-      <ConsoleToConvexLogger />
-      {children}
-    </ConvexProviderWithClerk>
+    <ConvexAuthEpochContext.Provider value={authEpoch}>
+      <ConvexProviderWithAuth client={convex} useAuth={useAuthFromClerk}>
+        <ConsoleToConvexLogger />
+        <ConvexAuthRecovery />
+        {children}
+      </ConvexProviderWithAuth>
+    </ConvexAuthEpochContext.Provider>
   );
 }
 
@@ -163,34 +276,45 @@ function EnsureConvexUserRecord() {
 }
 
 /**
+ * Hard ceiling on how long the native splash may cover the app.
+ *
+ * Generous on purpose: this is a backstop for a startup signal that never
+ * arrives, NOT a racer against the normal path. A healthy cold start resolves
+ * `isLoaded` well inside it, so the usual splash-to-content handoff is
+ * untouched.
+ */
+const SPLASH_CEILING_MS = 5000;
+
+/**
  * Keeps the splash visible while startup dependencies hydrate, without
  * blocking the root navigator from mounting on the first render.
+ *
+ * The ceiling is not a nicety. Clerk's `isLoaded` only flips after a network
+ * round-trip, so with no connectivity it never resolves, the effect below
+ * never runs, and the native splash covers the app forever — a frozen launch
+ * icon with no spinner, no offline message and no timeout. The tree
+ * underneath is alive and rendering the whole time (OfflineBootGate owns the
+ * cold-start offline screen, and ConnectionPillHost deliberately stays quiet
+ * because of it), so the app has something perfectly good to show and the
+ * splash is the only thing hiding it. Bound it on wall-clock so no startup
+ * signal — this one or a future one — can strand the app behind it.
  */
 function StartupSplashGate({ children, fontsReady }: { children: ReactNode; fontsReady: boolean }) {
   const { isLoaded } = useAuth();
+  const [ceilingReached, setCeilingReached] = useState(false);
 
-  /**
-   * Backstop only. app/index.tsx hides the splash when it unmounts — that is
-   * the real hand-off, and it happens once routing has resolved.
-   *
-   * Hiding here the moment fonts and Clerk were ready used to be the whole
-   * story, but routing also waits on the Convex user record, so the splash
-   * lifted early and exposed the routing screen underneath for that gap.
-   *
-   * This timer exists so a routing path that never resolves — no network, a
-   * Convex query that never settles — cannot leave someone staring at a splash
-   * forever. If it fires, the screen behind is index's own splash-coloured
-   * view, which is why that view is no longer a dark spinner.
-   */
   useEffect(() => {
-    if (!fontsReady || !isLoaded) return;
-    const t = setTimeout(() => {
+    const timer = setTimeout(() => setCeilingReached(true), SPLASH_CEILING_MS);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (shouldHideSplash({ fontsReady, authLoaded: isLoaded, ceilingReached })) {
       SplashScreen.hideAsync().catch((err) => {
         console.error("SplashScreen.hideAsync failed", err);
       });
-    }, SPLASH_MAX_HOLD_MS);
-    return () => clearTimeout(t);
-  }, [fontsReady, isLoaded]);
+    }
+  }, [fontsReady, isLoaded, ceilingReached]);
 
   return <>{children}</>;
 }
@@ -292,51 +416,17 @@ function RootErrorBoundary({ error, retry }: ErrorBoundaryProps) {
 
 export { RootErrorBoundary as ErrorBoundary };
 
-/**
- * Dev-only: open on Home, ignoring the route a reload restored.
- *
- * Renders nothing. Runs once, after the navigator is ready — `useSegments`
- * is empty until then, which would read as "we are at /" and skip the work.
- */
-function StartAtHomeOnReload() {
-  const navState = useRootNavigationState();
-  const segments = useSegments();
-  const done = useRef(false);
-
-  useEffect(() => {
-    if (!START_AT_HOME_ON_RELOAD || done.current) return;
-    if (!navState?.key || navState.stale) return;
-    done.current = true;
-
-    // `/` routes itself by auth state, and onboarding must not be jumped out
-    // of — a half-finished signup is exactly the state worth keeping.
-    // Typed as a tuple of known groups, so compare through `string` rather
-    // than narrowing against literals TS has already ruled out.
-    const group = segments[0] as string | undefined;
-    const screen = segments[1] as string | undefined;
-    if (!group || group === "(onboarding)") return;
-    if (group === "(main-tabs)" && screen === "home") return;
-
-    // Drop whatever the restored route was stacked on, so a back-swipe from
-    // Home does not land in the middle of a flow that no longer has its state.
-    try {
-      router.dismissAll();
-    } catch {
-      // Nothing to dismiss.
-    }
-    router.replace("/(main-tabs)/home");
-  }, [navState?.key, navState?.stale, segments]);
-
-  return null;
-}
-
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const [fontsLoaded, fontError] = useAppFonts();
   const fontsReady = fontsLoaded || Boolean(fontError);
 
   return (
-    <ClerkProvider publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!} tokenCache={tokenCache}>
+    <ClerkProvider
+      publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!}
+      tokenCache={tokenCache}
+      __experimental_resourceCache={guardedResourceCache}
+    >
       <StartupSplashGate fontsReady={fontsReady}>
         <ConvexClerkProvider>
           <SafeAreaProvider initialMetrics={initialWindowMetrics}>
@@ -367,11 +457,6 @@ export default function RootLayout() {
                       text measurement against the fallback font (clipped labels
                       on slow cold starts). */}
                   <OfflineBootGate fontsReady={fontsReady}>
-                  {/* Coach marks live at the ROOT, not on the tab layout.
-                      The booking flow is its own group outside (main-tabs),
-                      so a host mounted there could never reach the screens
-                      the booking walkthrough points at. */}
-                  <CoachProvider>
                   <Stack
                     screenOptions={{
                       headerShown: false,
@@ -386,33 +471,15 @@ export default function RootLayout() {
                       name="(onboarding)"
                       options={{ headerShown: false, gestureEnabled: false }}
                     />
-                    {/* No transition into the tabs.
-                        The root stack defaults to ios_from_right, which is
-                        right for pushing FORWARD into a detail screen and
-                        wrong for every way you reach the tabs: cold launch
-                        (the app should just open), and ~60 `replace` calls
-                        that are dismissals — finishing a booking, leaving
-                        onboarding, backing out of a flow. Sliding a
-                        dismissal in from the right reads as going deeper
-                        when you are coming back out.
-
-                        Android also suspends the tabs while a flow is pushed
-                        on top (Temur). Home otherwise re-renders under the
-                        booking flow on every cart toggle, location fix and
-                        Convex push (it is 2,200 lines and not compiler-
-                        memoised), and Cars/Bookings keep their loops alive.
-                        Frozen screens catch up with one render on return.
-
-                        The two are independent — one governs the transition,
-                        the other what happens to the screen underneath — so
-                        the merge keeps both rather than picking a side. */}
+                    {/* Android: suspend the tabs while a flow is pushed on top.
+                        Home otherwise re-renders under the booking flow on every
+                        cart toggle, location fix and Convex push (it is 2,200
+                        lines and not compiler-memoised), and Cars/Bookings keep
+                        their loops alive. Frozen screens catch up with one render
+                        on return. */}
                     <Stack.Screen
                       name="(main-tabs)"
-                      options={{
-                        headerShown: false,
-                        animation: "none",
-                        freezeOnBlur: Platform.OS === "android",
-                      }}
+                      options={{ headerShown: false, freezeOnBlur: Platform.OS === "android" }}
                     />
                     <Stack.Screen name="(tell-us-about)" options={{ headerShown: false }} />
                     <Stack.Screen name="(tire-booking)" options={{ headerShown: false }} />
@@ -479,9 +546,6 @@ export default function RootLayout() {
                         inside the overlay (Saved Addresses, Payment
                         Methods, etc.) use the normal slide_from_right. */}
                   </Stack>
-                  <StartAtHomeOnReload />
-                  <CoachMarkHost />
-                  </CoachProvider>
                   </OfflineBootGate>
                   <StatusBar style="auto" />
                 </ThemeProvider>

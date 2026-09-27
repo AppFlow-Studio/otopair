@@ -35,6 +35,8 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { haptics } from "@/lib/haptics";
 import { useToast } from "@/hooks/useToast";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
+import { useFocusEffect } from "expo-router";
+import { AndroidSoftInputModes, KeyboardController } from "react-native-keyboard-controller";
 import { useCanWrite } from "@/hooks/useConnection";
 import { AlignLeft, SquarePen, Ellipsis, History, CarFront, Copy, Volume2, Clock, ImageOff, AlertCircle, WifiOff, type LucideIcon } from "lucide-react-native";
 import { MenuView } from "@react-native-menu/menu";
@@ -97,6 +99,7 @@ import type { ConversationState, ChatMessage } from "@/services/ai/types";
 import { useAction, useMutation, useQuery, useConvex } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id, Doc } from "@/convex/_generated/dataModel";
+import { CoachTarget } from "@/components/coach/CoachTarget";
 
 // ============================================================================
 // CONSTANTS
@@ -362,6 +365,8 @@ export default function AIChatScreen() {
 
   // Local UI state
   const [inputValue, setInputValue] = useState("");
+  // The sent user message the composer is editing (#272), if any.
+  const [editingMessage, setEditingMessage] = useState<{ id: string; dbId: string } | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
 
@@ -413,6 +418,19 @@ export default function AIChatScreen() {
 
   // Track keyboard height + visibility (plain View, no KAV or Animated.View)
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  // Android: the composer is placed from the keyboard height, which is right
+  // only while the window is in resize mode. keyboard-controller resets the
+  // whole app to the manifest's pan mode whenever one of its views unmounts —
+  // e.g. closing the Cars mileage editor — and under pan the window also
+  // slides up, so the composer floated far above the keyboard. Re-assert
+  // resize every time this tab comes into focus.
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS !== "android") return;
+      KeyboardController.setInputMode(AndroidSoftInputModes.SOFT_INPUT_ADJUST_RESIZE);
+    }, []),
+  );
 
   useEffect(() => {
     const showSub = Keyboard.addListener(
@@ -545,7 +563,13 @@ export default function AIChatScreen() {
   // suggestion-tile paths never do.
   // ──────────────────────────────────────────────────────────────────────
   const sendToOtoAI = useCallback(
-    async (messageText: string, attachedImages?: string[]) => {
+    async (
+      messageText: string,
+      attachedImages?: string[],
+      // Editing a sent message (#272): this send replaces that message and
+      // everything after it, on screen and on the server.
+      replaceFrom?: { id: string; dbId: string },
+    ) => {
       if (!canWrite) return;
       if (isProcessing) return;
       const hasText = messageText.trim().length > 0;
@@ -570,8 +594,16 @@ export default function AIChatScreen() {
 
       // Show user message immediately for snappy UX. The Convex action
       // persists both turns server-side — saveCurrentConversation would
-      // dual-persist locally, so we deliberately skip it here.
-      setState((prev) => ({ ...prev, messages: [...prev.messages, userMessage] }));
+      // dual-persist locally, so we deliberately skip it here. An edit cuts
+      // the list at the edited message first; the cut is kept so a failed
+      // send can put it back (the server only deletes on success).
+      let replacedTail: ChatMessage[] = [];
+      setState((prev) => {
+        const cut = replaceFrom ? prev.messages.findIndex((m) => m.id === replaceFrom.id) : -1;
+        if (cut < 0) return { ...prev, messages: [...prev.messages, userMessage] };
+        replacedTail = prev.messages.slice(cut);
+        return { ...prev, messages: [...prev.messages.slice(0, cut), userMessage] };
+      });
 
       try {
         // Lazy-create the ai_conversations row on the first send. Same
@@ -589,6 +621,7 @@ export default function AIChatScreen() {
         const {
           text,
           assistantMessageId,
+          userMessageId,
           quickReplies,
           showRecordConfirmation,
           showVehicleUpdate,
@@ -605,6 +638,9 @@ export default function AIChatScreen() {
           // doesn't fall back to "most recently added" when the user has
           // explicitly chosen a different car.
           vehicleVin: selectedVehicleVin ?? undefined,
+          ...(replaceFrom
+            ? { replaceFromMessageId: replaceFrom.dbId as Id<"ai_messages"> }
+            : {}),
         });
 
         // Record-confirmation envelope — fired when Oto detects a symptom
@@ -698,7 +734,14 @@ export default function AIChatScreen() {
         };
         setState((prev) => ({
           ...prev,
-          messages: [...prev.messages, aiMessage],
+          messages: [
+            ...prev.messages.map((m) =>
+              m.id === userMessage.id && userMessageId
+                ? { ...m, dbId: userMessageId as string }
+                : m,
+            ),
+            aiMessage,
+          ],
           currentStage: nextStage ?? prev.currentStage,
         }));
 
@@ -720,7 +763,9 @@ export default function AIChatScreen() {
         setState((prev) => ({
           ...prev,
           messages: [
-            ...prev.messages,
+            ...(replacedTail.length > 0
+              ? [...prev.messages.filter((m) => m.id !== userMessage.id), ...replacedTail]
+              : prev.messages),
             {
               id: `err_${Date.now()}`,
               role: "assistant",
@@ -779,7 +824,12 @@ export default function AIChatScreen() {
     // a service-picker selection. Rule-engine code below is preserved and
     // re-enabled by flipping USE_OTO_AI_ACTION to false.
     if (USE_OTO_AI_ACTION) {
-      sendToOtoAI(messageText, attachedImages.length > 0 ? attachedImages : undefined);
+      sendToOtoAI(
+        messageText,
+        attachedImages.length > 0 ? attachedImages : undefined,
+        editingMessage ?? undefined,
+      );
+      setEditingMessage(null);
       return;
     }
 
@@ -854,6 +904,7 @@ export default function AIChatScreen() {
     saveCurrentConversation,
     selectedImages,
     sendToOtoAI,
+    editingMessage,
   ]);
 
   // Welcome-screen suggestion tile tap. Routes through Haiku so prompt
@@ -950,20 +1001,53 @@ export default function AIChatScreen() {
     }
   }, [showToast]);
 
-  // Edit a sent user message → drop its text back into the composer so the
-  // user can tweak and re-send it.
-  const handleEditUserMessage = useCallback((content: string) => {
-    setInputValue(content);
+  // Edit a sent user message (#272): its text goes back into the composer and
+  // sending replaces it — and everything after it — instead of appending a new
+  // prompt. A message the server hasn't confirmed yet (no dbId) can only be
+  // copied back into the composer.
+  const handleEditUserMessage = useCallback(
+    (message: ChatMessage) => {
+      setInputValue(message.content);
+      setEditingMessage(
+        message.dbId && !isProcessing ? { id: message.id, dbId: message.dbId } : null,
+      );
+    },
+    [isProcessing],
+  );
+  const cancelEdit = useCallback(() => {
+    setEditingMessage(null);
+    setInputValue("");
   }, []);
 
-  // Handle speak message
-  const handleSpeak = useCallback((content: string) => {
+  // Read a reply aloud — one at a time (#273). expo-speech queues every
+  // speak() call, so a second tap (on the same reply or another) used to wait
+  // for the first to finish and then play. Stop first; tapping the reply that
+  // is playing just stops it.
+  const [speakingId, setSpeakingId] = useState<string | null>(null);
+  const handleSpeak = useCallback((id: string, content: string) => {
+    Speech.stop();
+    if (speakingId === id) {
+      setSpeakingId(null);
+      return;
+    }
+    setSpeakingId(id);
+    // Only clear if this reply is still the current one: the stopped reply's
+    // onStopped arrives after the next one's id is set.
+    const clear = () => setSpeakingId((current) => (current === id ? null : current));
     Speech.speak(content, {
       language: "en-US",
       rate: 1.0,
+      onDone: clear,
+      onStopped: clear,
+      onError: clear,
     });
     showToast("Playing audio...", Volume2);
-  }, [showToast]);
+  }, [speakingId, showToast]);
+
+  // Leaving the chat stops whatever is being read aloud.
+  useEffect(() => () => {
+    Speech.stop();
+  }, []);
 
   // Sprint 4 — thumbs up / down open the feedback modal so the user can add
   // a comment + tags. The modal submits to api.ai_feedback.submit; the row
@@ -1003,6 +1087,7 @@ export default function AIChatScreen() {
     startNewConversation(); // Reset in store (clears currentConversationId)
     setState(createInitialState());
     setInputValue("");
+    setEditingMessage(null);
     setIsProcessing(false);
     setIsCarConfirmed(false);
     setSelectedVehicle(null);
@@ -1021,6 +1106,7 @@ export default function AIChatScreen() {
   // still living in the legacy rule-engine store.
   const handleSelectConversation = useCallback(
     async (conversationId: string) => {
+      setEditingMessage(null);
       const loadedState = loadConversation(conversationId);
       if (loadedState) {
         setState(loadedState);
@@ -1600,13 +1686,14 @@ export default function AIChatScreen() {
                     <AIMessageBubble
                       message={messageForBubble as AIMessage}
                       onCopy={() => handleCopy(message.content)}
-                      onSpeak={() => handleSpeak(message.content)}
+                      onSpeak={() => handleSpeak(message.id, message.content)}
+                      isSpeaking={speakingId === message.id}
                       onLike={() => openFeedbackModal("thumbs_up", message)}
                       onDislike={() => openFeedbackModal("thumbs_down", message)}
                       onQuickReplySelect={handleQuickReplySelect}
                       onEdit={
                         message.role === "user"
-                          ? () => handleEditUserMessage(message.content)
+                          ? () => handleEditUserMessage(message)
                           : undefined
                       }
                     />
@@ -1721,6 +1808,19 @@ export default function AIChatScreen() {
               </Text>
             </View>
           ) : null}
+          {editingMessage ? (
+            <View style={styles.otoEditingNote}>
+              <Text size="xs" weight="semiBold" color="#6B7280">
+                Editing your message
+              </Text>
+              <Pressable onPress={cancelEdit} hitSlop={8} accessibilityRole="button">
+                <Text size="xs" weight="semiBold" color={BrandColors.secondary}>
+                  Cancel
+                </Text>
+              </Pressable>
+            </View>
+          ) : null}
+          <CoachTarget id="oto.ask" radius={26} insetX={14}>
           <AIInputBox
             value={inputValue}
             onChangeText={setInputValue}
@@ -1741,6 +1841,7 @@ export default function AIChatScreen() {
             disabled={!canWrite}
             placeholder={canWrite ? "Ask Oto" : "Reconnect to chat with Oto"}
           />
+          </CoachTarget>
           {isAttachmentOpen && (
             <AIAttachmentPanel
               visible={isAttachmentOpen}
@@ -2000,6 +2101,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
+    paddingBottom: 6,
+  },
+  otoEditingNote: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
     paddingBottom: 6,
   },
 });

@@ -5,7 +5,7 @@
  *          Shows mechanic info, appointment details, vehicle, detailed services breakdown,
  *          and inline payment options (Apple Pay, Google Pay, saved cards).
  *
- * FLOW: mechanic detail → booking-details → payment → confirmation
+ * FLOW: mechanic detail → payment → confirmation
  *
  * ROUTE: /booking/mechanic/[id]/payment
  *
@@ -60,6 +60,7 @@ import { usePaymentStore } from "@/stores/usePaymentStore";
 import { useShopStore } from "@/stores/useShopStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { resolveBookingVehicleVin } from "@/utils/bookingVehicle";
+import { formatServiceDisplayName } from "@/utils/serviceDisplayName";
 
 // ============================================================================
 // CONSTANTS
@@ -1222,7 +1223,7 @@ export default function PaymentScreen() {
                       <View key={`${service.id}-${part.part_id}-${partIdx}`} style={styles.breakdownRow}>
                         <View style={styles.breakdownLabel}>
                           <Text size="sm" weight="regular" color="#6B7280">
-                            {part.name} (Part){qtyLabel}
+                            {formatServiceDisplayName(part.name)} (Part){qtyLabel}
                           </Text>
                           {/* DEV-only: surface which part the 7-layer selector
                               returned + why a row reads "Price TBD". Stripped

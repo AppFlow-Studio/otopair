@@ -73,3 +73,24 @@ export function useHasEverConnected(): boolean {
 export function nudgeReconnect(): void {
   void NetInfo.refresh();
 }
+
+/**
+ * Resolves once the device has a network again — straight away if it already
+ * does, or if NetInfo cannot tell. For code that must outlive a render, such as
+ * the Convex token fetch in app/_layout.tsx; components use useConnection().
+ */
+export function untilOnline(): Promise<void> {
+  return new Promise((resolve) => {
+    let unsubscribe: (() => void) | null = null;
+    let online = false;
+    unsubscribe = NetInfo.addEventListener((state) => {
+      if (online || (state.isInternetReachable ?? state.isConnected) === false) return;
+      online = true;
+      resolve();
+      unsubscribe?.();
+    });
+    // NetInfo replays its latest state synchronously, before it has handed back
+    // the unsubscribe handle — so the listener above may have had nothing to call.
+    if (online) unsubscribe();
+  });
+}

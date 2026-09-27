@@ -124,13 +124,32 @@ export function hasValidVinCheckDigit(vin: string | null | undefined): boolean {
 }
 
 /**
- * True when `vin` is worth handing to a decoder: real alphabet AND a check
- * digit that proves it was transcribed correctly.
+ * True when the WMI (position 1) is a North American region code, 1–5
+ * (US, Canada, Mexico). Only these VINs are guaranteed to carry a check
+ * digit; European and Asian home-market VINs often use position 9 for
+ * something else, so a failed check there says nothing about a typo.
+ */
+export function isNorthAmericanVin(vin: string | null | undefined): boolean {
+  if (!isRealVin(vin)) return false;
+  return /^[1-5]/.test(canonicalVin(vin as string));
+}
+
+/**
+ * True when the check digit is either valid or not required: enforced for
+ * North American VINs only, so imports and grey-market cars still decode.
+ */
+export function passesVinCheckDigitGate(vin: string | null | undefined): boolean {
+  return !isNorthAmericanVin(vin) || hasValidVinCheckDigit(vin);
+}
+
+/**
+ * True when `vin` is worth handing to a decoder: real alphabet AND, for North
+ * American VINs, a check digit that proves it was transcribed correctly.
  *
  * Use this at VIN-ENTRY doors (typed, scanned, pasted) where a wrong answer
  * becomes a car in someone's garage. Keep using `isRealVin` for "is this a
  * placeholder", which is a different question with different callers.
  */
 export function isDecodableVin(vin: string | null | undefined): boolean {
-  return isRealVin(vin) && hasValidVinCheckDigit(vin);
+  return isRealVin(vin) && passesVinCheckDigitGate(vin);
 }

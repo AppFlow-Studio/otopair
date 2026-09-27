@@ -2,7 +2,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { titleCaseVehicleName } from '@/lib/vehicleName';
-import { ActivityIndicator, BackHandler, Image, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, BackHandler, Image, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import Animated, {
@@ -38,7 +38,7 @@ import { useToast } from '@/hooks/useToast';
 import { useOemServiceIntervalsBatch } from '@/hooks/useOemServiceIntervals';
 
 // 3. Shared UI
-import { Button, BrandColors, ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
+import { Button, BrandColors, PageGradient, ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
 
 // 4. Stores & Hooks
 import { useAuthStore } from '@/stores/useAuthStore';
@@ -50,12 +50,15 @@ import {
   findServiceForMaintenanceType,
   findServiceFromDescription,
 } from '@/lib/maintenanceServiceMapping';
+import { selectHomeVehicleRows } from "@/lib/homeVehicleCards";
 import { buildWarningLightItem } from "@/lib/warningLightItems";
 import { canonicalWarningLights } from "@/lib/warningLightVocab";
 import { usePendingNavigationStore } from "@/stores/usePendingNavigationStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { useNotificationsSheetStore } from "@/stores/useNotificationsSheetStore";
-import { useNotificationsFromConvex } from "@/hooks/useNotificationsFromConvex";
+import { useSettingsOverlayStore } from "@/stores/useSettingsOverlayStore";
+import { useUnreadNotificationCount } from "@/hooks/useNotificationsFromConvex";
+import { useMeFromConvex } from "@/hooks/useMeFromConvex";
 import { useShallow } from 'zustand/react/shallow';
 import { useVehicleOwnershipFromConvex } from '@/hooks/useVehicleOwnershipFromConvex';
 import { fetchVehicleImageUrl } from '@/utils/vehicleImage';
@@ -117,6 +120,7 @@ import type { Id } from '@/convex/_generated/dataModel';
 
 // 6. Flow-specific components
 import { ActionCardsCarousel } from "@/components/home/ActionCardsCarousel";
+import { ANDROID_REAL_BLUR, AndroidBlurTarget } from "@/components/shared-ui/AndroidBlurTarget";
 import {
   UpcomingAppointmentHero,
   HERO_SHEET_OVERLAP,
@@ -249,11 +253,13 @@ export default function HomeScreen() {
   // `paddingTop: insets.top + 12` on the ScrollView jiggles for a frame
   // when the overlay's <Modal> mounts, shifting the home content (and
   // the profile button) up and then back down on every press.
-  const initialInsetTopRef = useRef<number | null>(null);
-  if (initialInsetTopRef.current === null) {
-    initialInsetTopRef.current = insets.top;
-  }
-  const stableInsetTop = initialInsetTopRef.current;
+  //
+  // Held in state rather than a ref written during render: the React
+  // Compiler refuses to memoise any component that touches a ref while
+  // rendering, and it was skipping this entire screen because of these
+  // three lines. Lazy initialiser, so `insets.top` is still read exactly
+  // once, on the first render — same value, same lock, same behaviour.
+  const [stableInsetTop] = useState(() => insets.top);
   const router = useRouter();
   const { isNewUser, shouldShowReactivationSheet, setShouldShowReactivationSheet } = useAuthStore();
   const { vehicles: listVehicles, hasVehicles, isLoading: vehiclesLoading } = useVehicleOwnershipFromConvex();
@@ -283,6 +289,8 @@ export default function HomeScreen() {
   // roughly the right offset and the measurement doesn't visibly shift it.
   const [headerRowHeight, setHeaderRowHeight] = useState(HOME_HEADER_ROW_HEIGHT);
   const headerMeasuredRef = useRef(false);
+  // What the no-hero pinned search blurs on Android 12+ (see the ScrollView).
+  const pageBlurTargetRef = useRef<View>(null);
   // Height of the appointment hero (measured) — drives how far the sheet has
   // to travel before the hero is fully covered.
   const heroHeightSV = useSharedValue(HERO_FALLBACK_HEIGHT);
@@ -467,7 +475,10 @@ export default function HomeScreen() {
   }, [shouldShowReactivationSheet, showWelcome, setShouldShowReactivationSheet]);
 
   // ── Data for action cards ──
-  const me = useQuery(api.users.getMe);
+  // Session-cached: Home gates its whole render on `me` (see
+  // isCriticalDataLoading), so offline it must fall back to the last record
+  // seen online or the cached offline mode stalls on this screen's spinner.
+  const { value: me } = useMeFromConvex();
 
   // ── First-run tutorial ──
   //
@@ -645,11 +656,18 @@ export default function HomeScreen() {
     return allBookings
       .filter((b: any) => b.status === 'in_progress')
       // Soonest first when a customer somehow has two jobs running at once.
-      .sort(
-        (a: any, b: any) =>
-          (a.scheduled_date || '').localeCompare(b.scheduled_date || '') ||
-          (a.scheduled_time || '').localeCompare(b.scheduled_time || ''),
-      )[0] ?? null;
+      // Written as a block, not a chain of `||`s: a logical expression whose
+      // operands are themselves logical expressions trips an invariant in the
+      // React Compiler and made it skip this whole screen. Same ordering.
+      .sort((a: any, b: any) => {
+        const byDate = String(a.scheduled_date || '').localeCompare(
+          String(b.scheduled_date || ''),
+        );
+        if (byDate !== 0) return byDate;
+        return String(a.scheduled_time || '').localeCompare(
+          String(b.scheduled_time || ''),
+        );
+      })[0] ?? null;
   }, [allBookings]);
 
   // Resume booking: user has services selected in an incomplete flow
@@ -809,13 +827,12 @@ export default function HomeScreen() {
   // ── Vehicle data with maintenance (no image dep — avoids cascading recomputation) ──
   const vehicleBaseData = useMemo<HomeVehicleBaseData[]>(() => {
     if (!listVehicles?.length) return [];
-    const seen = new Set<string>();
-    return listVehicles
-      .filter((r: any) => {
-        if (seen.has(r.vin)) return false;
-        seen.add(r.vin);
-        return true;
-      })
+    // One card (and one page dot) per real vehicle. `listVehiclesByUser`
+    // returns a row per ACTIVE ownership with `vehicle` looked up separately,
+    // so a dangling ownership comes back with `vehicle: null` — the same rows
+    // `useVehicleOwnershipFromConvex` already drops before hydrating the
+    // vehicle store, which is why the Cars tab never showed them.
+    return selectHomeVehicleRows(listVehicles)
       .map((r: any) => {
         const v = r.vehicle;
         const o = r.ownership;
@@ -1153,7 +1170,7 @@ export default function HomeScreen() {
   // surfaces an unread dot when the customer has pending outbox rows
   // (e.g., a shop has just proposed a reschedule).
   const openNotificationsSheet = useNotificationsSheetStore((s) => s.open);
-  const { unreadCount: notificationsUnreadCount } = useNotificationsFromConvex();
+  const notificationsUnreadCount = useUnreadNotificationCount();
   const hasUnreadNotifications = notificationsUnreadCount > 0;
 
   // userId still consumed by the review-sheet flow below; keep it.
@@ -1411,366 +1428,379 @@ export default function HomeScreen() {
     <ScrollDrivenGradientBackground colors={["#5BA3D9", "#8FC4E8", "#d9e8f5"]} scrollY={scrollYRef}>
       {(scrollHandler) => (
         <View style={styles.container}>
-          {/* Full Page Scroll */}
-          <Animated.ScrollView
-            style={styles.scrollView}
-            contentContainerStyle={[
-              styles.scrollContent,
-              // With a hero, the header lives in the fixed chrome above the
-              // ScrollView, so the content has to start clear of it.
-              { paddingTop: hasHero ? stableInsetTop + headerRowHeight : 0 },
-            ]}
-            showsVerticalScrollIndicator={false}
-            scrollEnabled={!isCardSwiping}
-            // Rubber-band is back: the banner's parallax is clamped at scroll 0
-            // (see heroParallaxStyle) so banner and sheet move together on an
-            // overscroll bounce, and the banner's background layer extends far
-            // enough above itself that pulling down reveals more banner rather
-            // than the page gradient.
-            bounces
-            overScrollMode="never"
-            // Prevent iOS from re-adjusting the scroll content when a
-            // transparent Modal (e.g. the settings overlay) mounts and
-            // triggers a transient safe-area renegotiation — without
-            // this, the home content shifts up then back down on press.
-            contentInsetAdjustmentBehavior="never"
-            automaticallyAdjustContentInsets={false}
-            onScroll={scrollHandler}
-            scrollEventThrottle={16}
-          >
-            {/* Appointment banner. Only the banner lives in the scroll flow
-                now — the header sits in the fixed chrome below, outside the
-                ScrollView, so it survives the whole scroll. The banner drifts
-                up at HERO_PARALLAX_RATE while the content sheet rises at full
-                speed and closes over it. With no booking, the header is
-                in-flow here instead and scrolls away as it always has. */}
-            {hasHero ? (
-              <Animated.View
-                style={heroParallaxStyle}
-                onLayout={(e) => {
-                  heroHeightSV.value = e.nativeEvent.layout.height;
-                }}
-              >
-                {/* Banner background. The solid fill extends far above the
-                    banner so an overscroll bounce pulls more navy into view
-                    rather than exposing the page gradient above it; the
-                    gradient is offset back down to sit exactly over the
-                    banner, so its stops aren't smeared across the overscroll
-                    slack. */}
-                <View style={styles.heroBackdrop} pointerEvents="none">
-                  <LinearGradient
-                    colors={[HERO_SURFACE, HERO_SURFACE_DEEP]}
-                    start={{ x: 0.5, y: 0 }}
-                    end={{ x: 0.5, y: 1 }}
-                    style={styles.heroBackdropFill}
+          {/* Full Page Scroll. On Android 12+ it sits in a blur target so the
+              no-hero pinned search can really blur it. The blur only sees
+              what's inside the target, so the target carries its own copy of
+              the page gradient; the pinned bar stays outside, or it would
+              blur itself. */}
+          <AndroidBlurTarget targetRef={pageBlurTargetRef}>
+            {ANDROID_REAL_BLUR && <PageGradient />}
+            <Animated.ScrollView
+              style={styles.scrollView}
+              contentContainerStyle={[
+                styles.scrollContent,
+                // With a hero, the header lives in the fixed chrome above the
+                // ScrollView, so the content has to start clear of it.
+                { paddingTop: hasHero ? stableInsetTop + headerRowHeight : 0 },
+              ]}
+              showsVerticalScrollIndicator={false}
+              scrollEnabled={!isCardSwiping}
+              // Rubber-band is back: the banner's parallax is clamped at scroll 0
+              // (see heroParallaxStyle) so banner and sheet move together on an
+              // overscroll bounce, and the banner's background layer extends far
+              // enough above itself that pulling down reveals more banner rather
+              // than the page gradient.
+              bounces
+              overScrollMode="never"
+              // Prevent iOS from re-adjusting the scroll content when a
+              // transparent Modal (e.g. the settings overlay) mounts and
+              // triggers a transient safe-area renegotiation — without
+              // this, the home content shifts up then back down on press.
+              contentInsetAdjustmentBehavior="never"
+              automaticallyAdjustContentInsets={false}
+              onScroll={scrollHandler}
+              scrollEventThrottle={16}
+            >
+              {/* Appointment banner. Only the banner lives in the scroll flow
+                  now — the header sits in the fixed chrome below, outside the
+                  ScrollView, so it survives the whole scroll. The banner drifts
+                  up at HERO_PARALLAX_RATE while the content sheet rises at full
+                  speed and closes over it. With no booking, the header is
+                  in-flow here instead and scrolls away as it always has. */}
+              {hasHero ? (
+                <Animated.View
+                  style={heroParallaxStyle}
+                  onLayout={(e) => {
+                    heroHeightSV.value = e.nativeEvent.layout.height;
+                  }}
+                >
+                  {/* Banner background. The solid fill extends far above the
+                      banner so an overscroll bounce pulls more navy into view
+                      rather than exposing the page gradient above it; the
+                      gradient is offset back down to sit exactly over the
+                      banner, so its stops aren't smeared across the overscroll
+                      slack. */}
+                  <View style={styles.heroBackdrop} pointerEvents="none">
+                    <LinearGradient
+                      colors={[HERO_SURFACE, HERO_SURFACE_DEEP]}
+                      start={{ x: 0.5, y: 0 }}
+                      end={{ x: 0.5, y: 1 }}
+                      style={styles.heroBackdropFill}
+                    />
+                  </View>
+
+                  <Animated.View style={heroRecedeStyle}>
+                    <UpcomingAppointmentHero
+                      flat
+                      booking={upcomingBookingCard!}
+                      carImageUri={
+                        upcomingBookingCard!.vin
+                          ? vehicleImageUrls[upcomingBookingCard!.vin]
+                          : undefined
+                      }
+                      onPress={() => handleAppointmentViewDetails(upcomingBookingCard!.id)}
+                    />
+                  </Animated.View>
+                </Animated.View>
+              ) : (
+                <View style={{ paddingTop: stableInsetTop + 19 }}>
+                  <HomeHeaderBar
+                    variant="onGradient"
+                    locationName={locationName}
+                    hasUnreadNotifications={hasUnreadNotifications}
+                    onBellPress={openNotificationsSheet}
                   />
                 </View>
+              )}
 
-                <Animated.View style={heroRecedeStyle}>
-                  <UpcomingAppointmentHero
-                    flat
-                    booking={upcomingBookingCard!}
-                    carImageUri={
-                      upcomingBookingCard!.vin
-                        ? vehicleImageUrls[upcomingBookingCard!.vin]
+              {/* Everything below the hero is a rounded "sheet" that slides up
+                  and COVERS the hero as you scroll (Uber-style). When a hero is
+                  present it carries the old light-blue home gradient (opaque, so
+                  it covers the white banner and blends with the page gradient at
+                  the bottom); otherwise it stays transparent as before. */}
+              <View
+                style={[styles.sheet, hasHero && styles.sheetOverHero]}
+                onLayout={(e) => {
+                  // Search sits ~34pt into the sheet; use the sheet's Y within
+                  // the scroll content to drive the sticky-search fade.
+                  searchBarOffsetY.value = e.nativeEvent.layout.y + SHEET_SEARCH_LEAD;
+                }}
+              >
+                {hasHero && (
+                  <>
+                    {/* Flat base. The wash below is a FIXED height rather than a
+                        gradient stop, because LinearGradient locations are
+                        fractions of the element and this sheet's height is the
+                        whole page — a 30% stop landed hundreds of points below
+                        the fold, and moved whenever the content length changed. */}
+                    <View style={styles.sheetOverHeroFill} pointerEvents="none" />
+                    {/* Picks up the page gradient's mid stop so the booked and
+                        unbooked Home read as the same screen below the banner. */}
+                    <LinearGradient
+                      colors={[PAGE_GRADIENT_MID, SHEET_SETTLED]}
+                      start={{ x: 0.5, y: 0 }}
+                      end={{ x: 0.5, y: 1 }}
+                      style={styles.sheetOverHeroWash}
+                      pointerEvents="none"
+                    />
+                  </>
+                )}
+
+                {/* Search Bar — search field opens the map AND auto-expands
+                    the booking sheet (entry point for booking a service). The
+                    Map button opens only the map (sheet stays collapsed). */}
+                <View
+                  style={styles.searchContainer}
+                  onLayout={(e) => {
+                    // Feed the pinned copy's collapsed→expanded height animation.
+                    // PINNED_SEARCH_ROW_PADDING accounts for the pinned row's own
+                    // vertical padding, which the in-flow copy doesn't have.
+                    searchRowHeightSV.value =
+                      e.nativeEvent.layout.height + PINNED_SEARCH_ROW_PADDING;
+                  }}
+                >
+                  {/* Anchored on the bar itself, not on searchContainer: that
+                      container is full-bleed with horizontal padding, so the
+                      hole ran edge to edge while the pill it was pointing at sat
+                      20pt inside it. */}
+                  <View {...searchAnchor}>
+                  <MechanicSearchBar
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                    onSubmit={handleSearch}
+                    onMapPress={handleMapPress}
+                    onPress={handleSearchPress}
+                    placeholderPhrases={SEARCH_PLACEHOLDER_PHRASES}
+                  />
+                  </View>
+                </View>
+
+              {/* Content Area */}
+              <View style={styles.content}>
+                {/* Running-late / overrun banner self-renders when the shop has
+                    fired a customer_late_push_reminder or overrun notification. */}
+                <CustomerLateBanner
+                  onReschedule={(bookingId) => handleReschedule(String(bookingId))}
+                />
+                {/* Action Cards Carousel */}
+                {visibleCardIds.length > 0 && <View style={styles.carouselContainer}>
+                  <ActionCardsCarousel
+                    // Upcoming Appointment — now uses the same BookingCard
+                    // the bookings tab renders, fed by the adapted booking
+                    // row + view-details/cancel handlers below.
+                    showAppointment={false}
+                    appointmentBooking={upcomingBookingCard}
+                    appointmentDestinationLatitude={upcomingBooking?.shopLat ?? 0}
+                    appointmentDestinationLongitude={upcomingBooking?.shopLng ?? 0}
+                    appointmentDestinationName={upcomingBooking?.shopName}
+                    appointmentDestinationAddress={upcomingShopAddress}
+                    onAppointmentViewDetails={handleAppointmentViewDetails}
+                    onAppointmentCancel={handleAppointmentCancel}
+                    onAppointmentReschedule={handleReschedule}
+                    // Resume Booking
+                    showResumeBooking={hasResumeBooking}
+                    resumeServicesPreview={resumeServicesPreview}
+                    resumeVehicleName={resumeVehicleName}
+                    resumeVehicleImage={resumeVehicleImage}
+                    onResumePress={() => {
+                      // Re-activate the vehicle the cart was started for before
+                      // entering the flow — the booking-flow layout evicts any
+                      // cart whose snapshot VIN doesn't match the active car,
+                      // so resuming with a different car selected (e.g. after
+                      // tapping another car's maintenance card) would otherwise
+                      // wipe the very booking this card promises to resume.
+                      if (resumeVehicleVin) {
+                        useVehicleStore.getState().selectVehicle(resumeVehicleVin);
+                      }
+                      router.push('/(booking-flow)/select-services');
+                    }}
+                    // Account Setup — the × only exists once all four steps
+                    // are complete; before that there is no dismiss handler,
+                    // so the card renders without one.
+                    showAccountSetup={showAccountSetup}
+                    onAccountSetupDismiss={
+                      canDismissAccountSetup
+                        ? () => { dismissAccountSetupCard({}); }
                         : undefined
                     }
-                    onPress={() => handleAppointmentViewDetails(upcomingBookingCard!.id)}
-                  />
-                </Animated.View>
-              </Animated.View>
-            ) : (
-              <View style={{ paddingTop: stableInsetTop + 19 }}>
-                <HomeHeaderBar
-                  variant="onGradient"
-                  locationName={locationName}
-                  hasUnreadNotifications={hasUnreadNotifications}
-                  onBellPress={openNotificationsSheet}
-                />
-              </View>
-            )}
-
-            {/* Everything below the hero is a rounded "sheet" that slides up
-                and COVERS the hero as you scroll (Uber-style). When a hero is
-                present it carries the old light-blue home gradient (opaque, so
-                it covers the white banner and blends with the page gradient at
-                the bottom); otherwise it stays transparent as before. */}
-            <View
-              style={[styles.sheet, hasHero && styles.sheetOverHero]}
-              onLayout={(e) => {
-                // Search sits ~34pt into the sheet; use the sheet's Y within
-                // the scroll content to drive the sticky-search fade.
-                searchBarOffsetY.value = e.nativeEvent.layout.y + SHEET_SEARCH_LEAD;
-              }}
-            >
-              {hasHero && (
-                <>
-                  {/* Flat base. The wash below is a FIXED height rather than a
-                      gradient stop, because LinearGradient locations are
-                      fractions of the element and this sheet's height is the
-                      whole page — a 30% stop landed hundreds of points below
-                      the fold, and moved whenever the content length changed. */}
-                  <View style={styles.sheetOverHeroFill} pointerEvents="none" />
-                  {/* Picks up the page gradient's mid stop so the booked and
-                      unbooked Home read as the same screen below the banner. */}
-                  <LinearGradient
-                    colors={[PAGE_GRADIENT_MID, SHEET_SETTLED]}
-                    start={{ x: 0.5, y: 0 }}
-                    end={{ x: 0.5, y: 1 }}
-                    style={styles.sheetOverHeroWash}
-                    pointerEvents="none"
-                  />
-                </>
-              )}
-
-              {/* Search Bar — search field opens the map AND auto-expands
-                  the booking sheet (entry point for booking a service). The
-                  Map button opens only the map (sheet stays collapsed). */}
-              <View
-                style={styles.searchContainer}
-                onLayout={(e) => {
-                  // Feed the pinned copy's collapsed→expanded height animation.
-                  // PINNED_SEARCH_ROW_PADDING accounts for the pinned row's own
-                  // vertical padding, which the in-flow copy doesn't have.
-                  searchRowHeightSV.value =
-                    e.nativeEvent.layout.height + PINNED_SEARCH_ROW_PADDING;
-                }}
-              >
-                {/* Anchored on the bar itself, not on searchContainer: that
-                    container is full-bleed with horizontal padding, so the
-                    hole ran edge to edge while the pill it was pointing at sat
-                    20pt inside it. */}
-                <View {...searchAnchor}>
-                <MechanicSearchBar
-                  value={searchQuery}
-                  onChangeText={setSearchQuery}
-                  onSubmit={handleSearch}
-                  onMapPress={handleMapPress}
-                  onPress={handleSearchPress}
-                  placeholderPhrases={SEARCH_PLACEHOLDER_PHRASES}
-                />
-                </View>
-              </View>
-
-            {/* Content Area */}
-            <View style={styles.content}>
-              {/* Running-late / overrun banner self-renders when the shop has
-                  fired a customer_late_push_reminder or overrun notification. */}
-              <CustomerLateBanner
-                onReschedule={(bookingId) => handleReschedule(String(bookingId))}
-              />
-              {/* Action Cards Carousel */}
-              {visibleCardIds.length > 0 && <View style={styles.carouselContainer}>
-                <ActionCardsCarousel
-                  // Upcoming Appointment — now uses the same BookingCard
-                  // the bookings tab renders, fed by the adapted booking
-                  // row + view-details/cancel handlers below.
-                  showAppointment={false}
-                  appointmentBooking={upcomingBookingCard}
-                  appointmentDestinationLatitude={upcomingBooking?.shopLat ?? 0}
-                  appointmentDestinationLongitude={upcomingBooking?.shopLng ?? 0}
-                  appointmentDestinationName={upcomingBooking?.shopName}
-                  appointmentDestinationAddress={upcomingShopAddress}
-                  onAppointmentViewDetails={handleAppointmentViewDetails}
-                  onAppointmentCancel={handleAppointmentCancel}
-                  onAppointmentReschedule={handleReschedule}
-                  // Resume Booking
-                  showResumeBooking={hasResumeBooking}
-                  resumeServicesPreview={resumeServicesPreview}
-                  resumeVehicleName={resumeVehicleName}
-                  resumeVehicleImage={resumeVehicleImage}
-                  onResumePress={() => {
-                    // Re-activate the vehicle the cart was started for before
-                    // entering the flow — the booking-flow layout evicts any
-                    // cart whose snapshot VIN doesn't match the active car,
-                    // so resuming with a different car selected (e.g. after
-                    // tapping another car's maintenance card) would otherwise
-                    // wipe the very booking this card promises to resume.
-                    if (resumeVehicleVin) {
-                      useVehicleStore.getState().selectVehicle(resumeVehicleVin);
-                    }
-                    router.push('/(booking-flow)/select-services');
-                  }}
-                  // Account Setup — the × only exists once all four steps
-                  // are complete; before that there is no dismiss handler,
-                  // so the card renders without one.
-                  showAccountSetup={showAccountSetup}
-                  onAccountSetupDismiss={
-                    canDismissAccountSetup
-                      ? () => { dismissAccountSetupCard({}); }
-                      : undefined
-                  }
-                  // Car Setup
-                  showCarSetup={showCarSetup}
-                  carSetupChecklist={carSetupChecklist}
-                  isCarSetupDone={isCarSetupDone}
-                  carSetupVehicleLabel={carSetupVehicleLabel}
-                  carSetupVehicleCount={incompleteVehicles.length}
-                  onCarSetupPress={() => {
-                    const o = carSetupVehicle?.ownership;
-                    if (isCarSetupDone) {
-                      // All done — dismiss permanently
-                      if (o?._id) dismissSetupCard({ vehicleOwnerId: o._id });
-                      setCarSetupDismissed(true);
-                      return;
-                    }
-                    // More than one car still to onboard → let the user choose.
-                    if (incompleteVehicles.length > 1) {
-                      pickerSheetRef.current?.open();
-                      return;
-                    }
-                    if (!o) {
-                      router.push('/add-vehicle');
-                    } else if (!o.preOnboardingComplete) {
-                      router.push({ pathname: '/car-pre-onboarding', params: { vehicleOwnerId: o._id } });
-                    } else {
-                      router.push({ pathname: '/(main-tabs)/cars', params: { openStepper: 'true' } });
-                    }
-                  }}
-                  onCarSetupDismiss={() => setCarSetupDismissed(true)}
-                  // Carousel callback
-                  onCardChange={(index) => setActiveCardIndex(index)}
-                  // User status - determines card order
-                  isNewUser={isNewUser}
-                />
-              </View>}
-
-              {/* Action Engine "Now" callout (Yassin v1.1 §3.2). Visible
-                  only when allNowItems is non-empty. Sits above the
-                  vehicle carousel so the most urgent action is the
-                  first thing a returning user sees. */}
-              <NowTierCallout
-                groups={allNowGroups}
-                onCardPress={(group, item) => {
-                  // Single card: route with the item's detail modal open.
-                  // Multi card (no item): route to the vehicle without a
-                  // specific detail (the multi-card header should feel
-                  // like "open this car" not "open service X").
-                  useVehicleStore.getState().selectVehicle(group.vehicleVin);
-                  router.push({
-                    pathname: '/(main-tabs)/cars',
-                    params: item ? { openItemDetail: item.itemId } : {},
-                  });
-                }}
-                onBookNow={(group, selectedItems) => {
-                  // Group carries the vehicle; selectedItems is the
-                  // checked subset (single-card path passes an array
-                  // of one, so behavior collapses to the old handler).
-                  useVehicleStore.getState().selectVehicle(group.vehicleVin);
-                  const store = useBookingStore.getState();
-                  store.clearSelectedServices();
-
-                  type MatchedService = NonNullable<
-                    ReturnType<typeof findServiceForMaintenanceType>
-                  >;
-                  const matched: MatchedService[] = [];
-                  for (const item of selectedItems) {
-                    const itemType = extractMaintenanceType(item.itemId);
-                    const explicit = item.suggestedServiceId
-                      ? store.availableServices.find((s) => s.id === item.suggestedServiceId)
-                      : undefined;
-                    const svc = explicit ?? findServiceForMaintenanceType(itemType, store.availableServices);
-                    if (svc) matched.push(svc);
-                  }
-
-                  // Seed the initial tab off the first matched service
-                  // (falls back to the type→category map, then a hard
-                  // default) so if we do land on select-services, the
-                  // correct tab opens.
-                  const firstType = selectedItems[0]
-                    ? extractMaintenanceType(selectedItems[0].itemId)
-                    : null;
-                  store.setInitialServiceCategory(
-                    matched[0]?.category ??
-                      (firstType ? MAINTENANCE_TYPE_TO_CATEGORY[firstType] : null) ??
-                      'basic_maintenance',
-                  );
-
-                  for (const svc of matched) store.toggleServiceSelection(svc.id);
-
-                  // Skip Screen 1 only when every checked item resolved
-                  // to a catalog service — otherwise land on
-                  // select-services so the user can see what's missing.
-                  router.push(
-                    matched.length === selectedItems.length && matched.length > 0
-                      ? '/(booking-flow)/choose-mechanic'
-                      : '/(booking-flow)/select-services',
-                  );
-                }}
-              />
-
-              {/* Vehicle Maintenance - with dynamic margin based on active card.
-                  Constant offset trimmed all the way (24 → -4) to absorb the
-                  28 px carouselContainer.marginTop added above (NOW card
-                  slides down without nudging this section). */}
-              <View
-                style={{ marginTop: (visibleCardIds.length > 0 ? getCardMargin(activeCardIndex) : 0) - 4 }}
-                {...priorityAnchor}
-              >
-                {hasVehicles ? (
-                  <VehicleMaintenanceCard
-                    vehicles={mappedVehicles.length > 0 ? mappedVehicles : undefined}
-                    onBookNow={(vehicleId, serviceId) => {
-                      useVehicleStore.getState().selectVehicle(vehicleId);
-                      // serviceId here is the row id, shaped like "<type>-<ownershipId>"
-                      // (see urgentItems builder above). Pre-attach the natural
-                      // service so the cart isn't empty when the sheet opens.
-                      const itemType = extractMaintenanceType(serviceId);
-                      const store = useBookingStore.getState();
-                      // Prefer the description-matched service we captured at
-                      // build time (e.g. Tire Replacement when the status copy
-                      // names it). Falls back to the slug default for the type.
-                      const tappedItem = vehicleBaseData
-                        .flatMap((v) => v.maintenanceItems ?? [])
-                        .find((m) => m.id === serviceId);
-                      const explicit = tappedItem?.suggestedServiceId
-                        ? store.availableServices.find((s) => s.id === tappedItem.suggestedServiceId)
-                        : undefined;
-                      const matched = explicit ?? findServiceForMaintenanceType(itemType, store.availableServices);
-                      // Use the matched service's own category for the tab.
-                      // Important when the matcher picks a service from a
-                      // different category than the maintenance type's default
-                      // (e.g. Brake System Inspection lives in system_diagnostics
-                      // even though the maintenance type is "brakes").
-                      store.setInitialServiceCategory(
-                        matched?.category ?? MAINTENANCE_TYPE_TO_CATEGORY[itemType] ?? 'basic_maintenance',
-                      );
-                      store.clearSelectedServices();
-                      if (matched) store.toggleServiceSelection(matched.id);
-                      // Same short-circuit as the NowTierCallout above —
-                      // when the service pre-selects cleanly, skip
-                      // Screen 1 and land on Choose Mechanic.
-                      router.push(
-                        matched
-                          ? '/(booking-flow)/choose-mechanic'
-                          : '/(booking-flow)/select-services',
-                      );
+                    // Car Setup
+                    showCarSetup={showCarSetup}
+                    carSetupChecklist={carSetupChecklist}
+                    isCarSetupDone={isCarSetupDone}
+                    carSetupVehicleLabel={carSetupVehicleLabel}
+                    carSetupVehicleCount={incompleteVehicles.length}
+                    onCarSetupPress={() => {
+                      const o = carSetupVehicle?.ownership;
+                      if (isCarSetupDone) {
+                        // All done — dismiss permanently
+                        if (o?._id) dismissSetupCard({ vehicleOwnerId: o._id });
+                        setCarSetupDismissed(true);
+                        return;
+                      }
+                      // More than one car still to onboard → let the user choose.
+                      if (incompleteVehicles.length > 1) {
+                        pickerSheetRef.current?.open();
+                        return;
+                      }
+                      if (!o) {
+                        router.push('/add-vehicle');
+                      } else if (!o.preOnboardingComplete) {
+                        router.push({ pathname: '/car-pre-onboarding', params: { vehicleOwnerId: o._id } });
+                      } else {
+                        router.push({ pathname: '/(main-tabs)/cars', params: { openStepper: 'true' } });
+                      }
                     }}
-                    onSwipeStart={() => setIsCardSwiping(true)}
-                    onSwipeEnd={() => setIsCardSwiping(false)}
+                    onCarSetupDismiss={() => setCarSetupDismissed(true)}
+                    // Carousel callback
+                    onCardChange={(index) => setActiveCardIndex(index)}
+                    // User status - determines card order
+                    isNewUser={isNewUser}
                   />
-                ) : (
-                  <AddFirstVehicleCard showAccountSetup={showAccountSetup} />
+                </View>}
+
+                {/* Action Engine "Now" callout (Yassin v1.1 §3.2). Visible
+                    only when allNowItems is non-empty. Sits above the
+                    vehicle carousel so the most urgent action is the
+                    first thing a returning user sees. */}
+                <NowTierCallout
+                  groups={allNowGroups}
+                  onCardPress={(group, item) => {
+                    // Single card: route with the item's detail modal open.
+                    // Multi card (no item): route to the vehicle without a
+                    // specific detail (the multi-card header should feel
+                    // like "open this car" not "open service X").
+                    useVehicleStore.getState().selectVehicle(group.vehicleVin);
+                    router.push({
+                      pathname: '/(main-tabs)/cars',
+                      params: item ? { openItemDetail: item.itemId } : {},
+                    });
+                  }}
+                  onBookNow={(group, selectedItems) => {
+                    // Group carries the vehicle; selectedItems is the
+                    // checked subset (single-card path passes an array
+                    // of one, so behavior collapses to the old handler).
+                    useVehicleStore.getState().selectVehicle(group.vehicleVin);
+                    const store = useBookingStore.getState();
+                    store.clearSelectedServices();
+
+                    type MatchedService = NonNullable<
+                      ReturnType<typeof findServiceForMaintenanceType>
+                    >;
+                    const matched: MatchedService[] = [];
+                    for (const item of selectedItems) {
+                      const itemType = extractMaintenanceType(item.itemId);
+                      const explicit = item.suggestedServiceId
+                        ? store.availableServices.find((s) => s.id === item.suggestedServiceId)
+                        : undefined;
+                      const svc = explicit ?? findServiceForMaintenanceType(itemType, store.availableServices);
+                      if (svc) matched.push(svc);
+                    }
+
+                    // Seed the initial tab off the first matched service
+                    // (falls back to the type→category map, then a hard
+                    // default) so if we do land on select-services, the
+                    // correct tab opens.
+                    const firstType = selectedItems[0]
+                      ? extractMaintenanceType(selectedItems[0].itemId)
+                      : null;
+                    store.setInitialServiceCategory(
+                      matched[0]?.category ??
+                        (firstType ? MAINTENANCE_TYPE_TO_CATEGORY[firstType] : null) ??
+                        'basic_maintenance',
+                    );
+
+                    for (const svc of matched) store.toggleServiceSelection(svc.id);
+
+                    // Skip Screen 1 only when every checked item resolved
+                    // to a catalog service — otherwise land on
+                    // select-services so the user can see what's missing.
+                    router.push(
+                      matched.length === selectedItems.length && matched.length > 0
+                        ? '/(booking-flow)/choose-mechanic'
+                        : '/(booking-flow)/select-services',
+                    );
+                  }}
+                />
+
+                {/* Vehicle Maintenance - with dynamic margin based on active card.
+                    Constant offset trimmed all the way (24 → -4) to absorb the
+                    28 px carouselContainer.marginTop added above (NOW card
+                    slides down without nudging this section). */}
+                <View
+                  style={{ marginTop: (visibleCardIds.length > 0 ? getCardMargin(activeCardIndex) : 0) - 4 }}
+                  {...priorityAnchor}
+                >
+                  {/* `vehicles={undefined}` makes the card fall back to its
+                      built-in Lamborghini / Tesla / Lexus sample set, so the
+                      empty case has to render nothing instead — `hasVehicles`
+                      counts raw ownership rows and can be true while
+                      `mappedVehicles` is still empty (rows still loading, or
+                      every row dangling). */}
+                  {hasVehicles && mappedVehicles.length > 0 ? (
+                    <VehicleMaintenanceCard
+                      vehicles={mappedVehicles}
+                      onBookNow={(vehicleId, serviceId) => {
+                        useVehicleStore.getState().selectVehicle(vehicleId);
+                        // serviceId here is the row id, shaped like "<type>-<ownershipId>"
+                        // (see urgentItems builder above). Pre-attach the natural
+                        // service so the cart isn't empty when the sheet opens.
+                        const itemType = extractMaintenanceType(serviceId);
+                        const store = useBookingStore.getState();
+                        // Prefer the description-matched service we captured at
+                        // build time (e.g. Tire Replacement when the status copy
+                        // names it). Falls back to the slug default for the type.
+                        const tappedItem = vehicleBaseData
+                          .flatMap((v) => v.maintenanceItems ?? [])
+                          .find((m) => m.id === serviceId);
+                        const explicit = tappedItem?.suggestedServiceId
+                          ? store.availableServices.find((s) => s.id === tappedItem.suggestedServiceId)
+                          : undefined;
+                        const matched = explicit ?? findServiceForMaintenanceType(itemType, store.availableServices);
+                        // Use the matched service's own category for the tab.
+                        // Important when the matcher picks a service from a
+                        // different category than the maintenance type's default
+                        // (e.g. Brake System Inspection lives in system_diagnostics
+                        // even though the maintenance type is "brakes").
+                        store.setInitialServiceCategory(
+                          matched?.category ?? MAINTENANCE_TYPE_TO_CATEGORY[itemType] ?? 'basic_maintenance',
+                        );
+                        store.clearSelectedServices();
+                        if (matched) store.toggleServiceSelection(matched.id);
+                        // Same short-circuit as the NowTierCallout above —
+                        // when the service pre-selects cleanly, skip
+                        // Screen 1 and land on Choose Mechanic.
+                        router.push(
+                          matched
+                            ? '/(booking-flow)/choose-mechanic'
+                            : '/(booking-flow)/select-services',
+                        );
+                      }}
+                      onSwipeStart={() => setIsCardSwiping(true)}
+                      onSwipeEnd={() => setIsCardSwiping(false)}
+                    />
+                  ) : hasVehicles ? null : (
+                    <AddFirstVehicleCard showAccountSetup={showAccountSetup} />
+                  )}
+                </View>
+
+                {/* More Services Section (6-card service-type grid) */}
+                <MoreServicesSection onBeforeOpenBookingFlow={openBookingFlow} />
+
+                {/* Service Bundles + Provider Types ("More") only make sense
+                    once the user has a car — hide both until one is added. */}
+                {hasVehicles && (
+                  <>
+                    {/* Service Bundles Section */}
+                    <ServiceBundlesSection onBeforeOpenBookingFlow={openBookingFlow} />
+
+                    {/* Provider Types Section ("More" — 3 provider cards) */}
+                    <ProviderTypesSection onBeforeOpenBookingFlow={openBookingFlow} />
+                  </>
                 )}
               </View>
-
-              {/* More Services Section (6-card service-type grid) */}
-              <MoreServicesSection onBeforeOpenBookingFlow={openBookingFlow} />
-
-              {/* Service Bundles + Provider Types ("More") only make sense
-                  once the user has a car — hide both until one is added. */}
-              {hasVehicles && (
-                <>
-                  {/* Service Bundles Section */}
-                  <ServiceBundlesSection onBeforeOpenBookingFlow={openBookingFlow} />
-
-                  {/* Provider Types Section ("More" — 3 provider cards) */}
-                  <ProviderTypesSection onBeforeOpenBookingFlow={openBookingFlow} />
-                </>
-              )}
-            </View>
-            </View>
-          </Animated.ScrollView>
+              </View>
+            </Animated.ScrollView>
+          </AndroidBlurTarget>
 
           {/* Fixed top chrome (hero only) — one overlay holding the header for
               the whole scroll plus the search bar that slides in beneath it
@@ -1832,6 +1862,10 @@ export default function HomeScreen() {
               <Animated.View
                 animatedProps={pinnedSearchProps}
                 style={[styles.pinnedSearch, pinnedSearchRowStyle]}
+                // Android only: fade as one layer, like iOS does. By default
+                // Android fades each child on its own, so mid-fade the search
+                // bar's shadow showed through it as a wireframe outline.
+                needsOffscreenAlphaCompositing={Platform.OS === 'android' ? true : undefined}
               >
                 <View style={styles.pinnedSearchInner}>
                   <MechanicSearchBar
@@ -1853,8 +1887,10 @@ export default function HomeScreen() {
             <Animated.View
               animatedProps={pinnedSearchProps}
               style={[styles.pinnedSearchStandalone, { paddingTop: stableInsetTop }, pinnedSearchStyle]}
+              // See the hero variant's pinned row: one-layer fade on Android.
+              needsOffscreenAlphaCompositing={Platform.OS === 'android' ? true : undefined}
             >
-              <BlurView intensity={40} tint="light" style={StyleSheet.absoluteFill} />
+              <PinnedSearchBackdrop blurTarget={pageBlurTargetRef} />
               <View style={styles.pinnedSearchInner}>
                 <MechanicSearchBar
                   value={searchQuery}
@@ -2024,6 +2060,32 @@ export default function HomeScreen() {
   );
 }
 
+/** The no-hero pinned search's frosted backdrop. Its own component so the
+ *  Settings subscription below doesn't re-render the whole Home screen. */
+function PinnedSearchBackdrop({ blurTarget }: { blurTarget: React.RefObject<View | null> }) {
+  // Android 12+ blurs the page for real — except while Settings is open:
+  // Settings frosts the whole screen itself, and a live blur inside its
+  // source would be re-rendered inside that blur every frame.
+  const settingsOpen = useSettingsOverlayStore((s) => s.isOpen);
+  const liveBlur = ANDROID_REAL_BLUR && !settingsOpen;
+
+  if (Platform.OS === 'android' && !ANDROID_REAL_BLUR) {
+    // Android 11 and older can't blur (expo-blur falls back to a flat tint),
+    // so the page showed through under the clock. iOS frosts it to the page
+    // gradient's light blue — match that.
+    return <View style={[StyleSheet.absoluteFill, styles.pinnedSearchAndroidFill]} />;
+  }
+  return (
+    <BlurView
+      intensity={40}
+      tint="light"
+      style={StyleSheet.absoluteFill}
+      blurMethod={liveBlur ? 'dimezisBlurViewSdk31Plus' : undefined}
+      blurTarget={liveBlur ? blurTarget : undefined}
+    />
+  );
+}
+
 const styles = StyleSheet.create({
   // Welcome screen styles
   welcomeContainer: {
@@ -2164,12 +2226,17 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 10,
-    elevation: 20,
+    // No `elevation`: the bar has no fill of its own, so while it fades the
+    // shadow under it showed through as a dark band. zIndex keeps it on top.
     paddingBottom: 10,
     overflow: 'hidden',
     // Hairline separation from the content scrolling beneath it.
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: 'rgba(15,27,45,0.08)',
+  },
+  // Measured off the iOS pinned bar (the frosted page gradient).
+  pinnedSearchAndroidFill: {
+    backgroundColor: 'rgba(150, 202, 243, 0.97)',
   },
   pinnedSearchInner: {
     paddingLeft: 16,

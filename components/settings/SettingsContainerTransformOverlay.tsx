@@ -36,6 +36,7 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
+import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "convex/react";
@@ -44,6 +45,7 @@ import { X } from "lucide-react-native";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 
 import { SettingsContent } from "@/components/settings/SettingsContent";
+import { ANDROID_REAL_BLUR } from "@/components/shared-ui/AndroidBlurTarget";
 import { api } from "@/convex/_generated/api";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import {
@@ -69,10 +71,15 @@ type RootMetrics = {
 
 export function SettingsContainerTransformOverlay({
   onUnmount,
+  blurTarget,
 }: {
   onUnmount: () => void;
+  /** The tab navigator. On Android 12+ Settings frosts it, the way the iOS
+   *  overlay blurs Home, instead of covering it with an opaque navy page. */
+  blurTarget?: React.RefObject<View | null>;
 }) {
   const insets = useSafeAreaInsets();
+  const frosted = ANDROID_REAL_BLUR && blurTarget != null;
   const router = useRouter();
   const window = useWindowDimensions();
   const close = useSettingsOverlayStore((s) => s.close);
@@ -463,6 +470,7 @@ export function SettingsContainerTransformOverlay({
   const settingsContent = useMemo(
     () => (
       <SettingsContent
+        translucent={frosted}
         deferBlurHeader={!settled}
         avatarOverride={settled ? undefined : avatarPlaceholder}
         resetScrollSignal={openSequence}
@@ -471,6 +479,7 @@ export function SettingsContainerTransformOverlay({
     ),
     [
       avatarPlaceholder,
+      frosted,
       handleSettingsScrollOffsetChange,
       openSequence,
       settled,
@@ -484,19 +493,43 @@ export function SettingsContainerTransformOverlay({
       style={styles.root}
       onLayout={handleRootLayout}
     >
+      {/* A plain scrim even when frosted: it only shows around the card while
+          it grows, and a second full-screen live blur doubled every frame's
+          cost. */}
       <Animated.View
         pointerEvents="none"
         style={[StyleSheet.absoluteFill, styles.backdrop, backdropStyle]}
       />
 
-      <Animated.View pointerEvents="auto" style={[styles.surface, surfaceStyle]}>
+      <Animated.View
+        pointerEvents="auto"
+        style={[styles.surface, frosted && styles.surfaceFrosted, surfaceStyle]}
+      >
+        {/* Android 12+: frosted glass over the tabs, like the iOS overlay —
+            the only live blur on screen while Settings is open (the tab bar
+            and pinned search turn theirs off). Outside the scaled content
+            view so the blur tracks the surface's real bounds while it grows. */}
+        {frosted ? (
+          <>
+            <BlurView
+              intensity={60}
+              tint="dark"
+              blurMethod="dimezisBlurViewSdk31Plus"
+              blurTarget={blurTarget}
+              style={StyleSheet.absoluteFill}
+            />
+            <View style={styles.frostTint} />
+          </>
+        ) : null}
         <Animated.View style={surfaceContentStyle}>
-          <LinearGradient
-            colors={[SETTINGS_GRADIENT_TOP, SETTINGS_GRADIENT_BOTTOM]}
-            start={{ x: 0.5, y: 0 }}
-            end={{ x: 0.5, y: 1 }}
-            style={StyleSheet.absoluteFill}
-          />
+          {frosted ? null : (
+            <LinearGradient
+              colors={[SETTINGS_GRADIENT_TOP, SETTINGS_GRADIENT_BOTTOM]}
+              start={{ x: 0.5, y: 0 }}
+              end={{ x: 0.5, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
+          )}
           <Animated.View
             pointerEvents={settled ? "auto" : "none"}
             style={[StyleSheet.absoluteFill, contentStyle]}
@@ -560,6 +593,15 @@ const styles = StyleSheet.create({
     top: 0,
     overflow: "hidden",
     backgroundColor: "#0B1120",
+  },
+  surfaceFrosted: {
+    backgroundColor: "transparent",
+  },
+  // Navy over the blur so the white rows stay legible — the iOS overlay's
+  // card tint, deepened because Android's dark blur tint is lighter.
+  frostTint: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(11,17,32,0.35)",
   },
   floatingAvatar: {
     position: "absolute",

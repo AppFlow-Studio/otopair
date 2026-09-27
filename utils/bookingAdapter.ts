@@ -23,6 +23,7 @@ import {
   type RotorAxle,
 } from "@/constants/rotorFlow";
 import { hhmmToDisplayTime } from "@/utils/timeSlotUtils";
+import { formatServiceDisplayNames } from "@/utils/serviceDisplayName";
 
 /** Convert "14:00" → "2:00 PM"; pass through anything that already
  *  contains AM/PM. Empty/undefined returns "". */
@@ -120,6 +121,11 @@ export interface ConvexBookingWithDetails {
   /** Raw pickup / cancellation fee context (0 = waived). */
   cancellation_fee_cents?: number | null;
   cancellation_kind?: "free" | "late_cancel" | "no_show" | null;
+  /** When / by whom the booking was cancelled or declined, plus a
+   *  customer-safe reason. Drives the 24h "Cancelled" card on My Bookings. */
+  cancelled_at_ms?: number | null;
+  cancelled_by_role?: "shop" | "customer" | "system" | string | null;
+  cancellation_reason_label?: string | null;
   quote_state?: "pending" | "ready" | "expired" | "cancelled" | null;
   quote_expires_at?: number | null;
   quote_dismissed_at_ms?: number | null;
@@ -253,7 +259,9 @@ export function adaptConvexBookingWithDetailsToCard(row: ConvexBookingWithDetail
   const status =
     row.quote_tile_state === "expired"
       ? "quote_expired"
-      : (row.status as BookingCardBooking["status"]);
+      : row.status === "declined"
+        ? "cancelled"
+        : (row.status as BookingCardBooking["status"]);
 
   // For tire-quote bookings, synthesize the same notes string the local
   // PendingQuoteCard parser expects ("4 Premium All-Season · 225/45R18").
@@ -290,7 +298,9 @@ export function adaptConvexBookingWithDetailsToCard(row: ConvexBookingWithDetail
 
   return {
     id: row._id,
-    services: row.serviceNames,
+    // Server-resolved names off the booking row, so they carry whatever the
+    // `services` table says — still "Timing Belt". See utils/serviceDisplayName.ts.
+    services: formatServiceDisplayNames(row.serviceNames),
     carModel,
     carYear,
     licensePlate: row.licensePlate,
@@ -327,6 +337,9 @@ export function adaptConvexBookingWithDetailsToCard(row: ConvexBookingWithDetail
     historyAmountCents: row.historyAmountCents ?? undefined,
     cancellationFeeCents: row.cancellation_fee_cents ?? undefined,
     cancellationKind: row.cancellation_kind ?? undefined,
+    cancelledAtMs: row.cancelled_at_ms ?? undefined,
+    cancelledByRole: row.cancelled_by_role ?? undefined,
+    cancellationReasonLabel: row.cancellation_reason_label ?? undefined,
     quoteType,
   };
 }

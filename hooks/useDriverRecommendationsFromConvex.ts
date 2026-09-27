@@ -10,6 +10,7 @@
 
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { formatServiceDisplayName } from "@/utils/serviceDisplayName";
 
 /** Shape returned by api.jobRecommendations.getDriverVisibleRecsForVehicle. */
 export interface DriverRecommendation {
@@ -46,7 +47,17 @@ export function useDriverRecommendationsFromConvex(vin: string | null | undefine
   );
 
   return {
-    recommendations: recommendations ?? [],
+    // `service_name` is resolved server-side off the `services` table, which
+    // still reads "Timing Belt". See utils/serviceDisplayName.ts.
+    // Spread, don't re-type: the server returns fields this interface never
+    // declared (`selected_service_option`, `tire_specs`), and callers cast to
+    // their own shapes to read them. Narrowing here would drop them.
+    recommendations: (recommendations ?? []).map((r) => ({
+      ...r,
+      service_name: formatServiceDisplayName(
+        (r as { service_name?: string }).service_name,
+      ),
+    })),
     isLoading: vin != null && recommendations === undefined,
   };
 }

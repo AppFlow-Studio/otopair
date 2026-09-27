@@ -89,10 +89,12 @@ const CATEGORY_VISUALS: Record<string, NotificationVisual> = {
   booking_reauth_required: { Icon: CreditCard, tone: "blue" },
 
   // ── Estimate decisions — needs attention ─────────────────────────────────
-  booking_prejob_pending: { Icon: Wrench, tone: "amber" },
-  booking_midjob_pending: { Icon: Wrench, tone: "amber" },
-  booking_postjob_pending: { Icon: Wrench, tone: "amber" },
+  // Underscored cycle form to match convex `booking_${cycle}_pending`.
+  booking_pre_job_pending: { Icon: Wrench, tone: "amber" },
+  booking_mid_job_pending: { Icon: Wrench, tone: "amber" },
+  booking_post_job_pending: { Icon: Wrench, tone: "amber" },
   booking_estimate_in_range: { Icon: CircleCheck, tone: "green" },
+  booking_estimate_below_range: { Icon: CircleCheck, tone: "green" },
   booking_estimate_withdrawn: { Icon: Wrench, tone: "neutral" },
 
   // ── Scheduling ───────────────────────────────────────────────────────────
@@ -111,6 +113,13 @@ const CATEGORY_VISUALS: Record<string, NotificationVisual> = {
   walkin_booking_confirmed: { Icon: CircleCheck, tone: "green" },
   walkin_vehicle_at_shop: { Icon: Car, tone: "blue" },
   walkin_prejob_complete: { Icon: Wrench, tone: "blue" },
+
+  // ── Booking lifecycle milestones (app customer) ──────────────────────────
+  booking_request_sent: { Icon: CircleCheck, tone: "blue" },
+  booking_confirmed_for_customer: { Icon: CircleCheck, tone: "green" },
+  booking_vehicle_checked_in: { Icon: Car, tone: "blue" },
+  booking_work_started: { Icon: Wrench, tone: "blue" },
+  booking_service_completed: { Icon: CircleCheck, tone: "green" },
 
   // ── Vehicle / misc ───────────────────────────────────────────────────────
   vehicle_enrichment_complete: { Icon: Sparkles, tone: "blue" },
