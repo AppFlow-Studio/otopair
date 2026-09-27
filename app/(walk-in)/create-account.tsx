@@ -25,8 +25,8 @@
  * OWNER: Ahmad Hamoudeh
  */
 
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Animated, Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAction, useMutation } from 'convex/react';
 
@@ -55,6 +55,14 @@ export default function CreateAccountGateScreen() {
 
   const [photoUrl, setPhotoUrl] = useState<string | null>(cachedUrl);
   const [photoLoading, setPhotoLoading] = useState(!cachedUrl);
+  /* Resolving the URL and DOWNLOADING it are two different waits, and only
+     the first was being tracked. `photoLoading` covers `ensureTrackerImage`
+     returning a URL; after that the remote file still has to come down the
+     wire. These cover the second wait so the placeholder can stay hidden for
+     both. */
+  const [remoteReady, setRemoteReady] = useState(false);
+  const [remoteFailed, setRemoteFailed] = useState(false);
+  const fade = useRef(new Animated.Value(0)).current;
 
   // Already has an account — claim the job onto it, THEN go to the garage.
   //
@@ -102,6 +110,24 @@ export default function CreateAccountGateScreen() {
     };
   }, [token, cachedUrl, ensureImage]);
 
+  // A new URL means a new download — start the next one hidden.
+  useEffect(() => {
+    setRemoteReady(false);
+    setRemoteFailed(false);
+    fade.setValue(0);
+  }, [photoUrl, fade]);
+
+  /* Show the covered-car placeholder ONLY once we know there is no real photo
+     coming — resolution finished and produced nothing, or the download failed.
+     It used to render underneath the spinner during BOTH waits, so the first
+     thing the driver saw on a screen headlined "Nice ride" was a generic
+     shrouded car. That is the wrong picture to greet someone with, and it is
+     wrong in a way that looks like the app got their car wrong.
+     Waiting on nothing is better than showing the wrong thing. */
+  const waitingOnPhoto =
+    photoLoading || (!!photoUrl && !remoteReady && !remoteFailed);
+  const showFallback = !waitingOnPhoto && (!photoUrl || remoteFailed);
+
   const subtitle = data.shop;
 
   return (
@@ -113,14 +139,42 @@ export default function CreateAccountGateScreen() {
         {/* No card — the car sits on the page, with a soft contact shadow so
             it reads as resting rather than floating. */}
         <View style={styles.photoWrap}>
-          <Image
-            source={photoUrl ? { uri: photoUrl } : FALLBACK_VEHICLE_IMAGE}
-            style={styles.photo}
-            resizeMode="contain"
-            accessibilityLabel={data.vehicleShort}
-          />
-          {photoLoading && !photoUrl ? (
-            <ActivityIndicator color={WI.accent} style={styles.photoSpinner} />
+          {/* Kept mounted while it downloads — it cannot load if it is not
+              rendered — but held at opacity 0 until the bytes are in, then
+              faded up. The swap is the reveal, so it should not snap. */}
+          {photoUrl && !remoteFailed ? (
+            <Animated.Image
+              source={{ uri: photoUrl }}
+              style={[styles.photo, { opacity: fade }]}
+              resizeMode="contain"
+              accessibilityLabel={data.vehicleShort}
+              onLoad={() => {
+                setRemoteReady(true);
+                Animated.timing(fade, {
+                  toValue: 1,
+                  duration: 260,
+                  useNativeDriver: true,
+                }).start();
+              }}
+              onError={() => setRemoteFailed(true)}
+            />
+          ) : null}
+
+          {showFallback ? (
+            <Image
+              source={FALLBACK_VEHICLE_IMAGE}
+              style={styles.photo}
+              resizeMode="contain"
+              accessibilityLabel={data.vehicleShort}
+            />
+          ) : null}
+
+          {/* Sits on top of the (still invisible) image. photoWrap reserves
+              the height, so nothing below moves when the car arrives. */}
+          {waitingOnPhoto ? (
+            <View style={styles.photoPlaceholder}>
+              <ActivityIndicator color={WI.accent} />
+            </View>
           ) : null}
         </View>
 
@@ -160,9 +214,20 @@ const styles = StyleSheet.create({
   },
   // The title is top-aligned, but the car and everything under it stay at
   // their original height — this gap absorbs the difference.
-  photoWrap: { marginTop: 106 },
-  photo: { width: '100%', height: 160 },
+  /* Fixed height, and every child overlays inside it. The image is rendered
+     while it downloads (at opacity 0) and the spinner sits on top of it — if
+     they stacked in normal flow the block would be 320pt tall during loading
+     and snap to 160 when the car arrived, taking the headline with it. */
+  photoWrap: { marginTop: 106, height: 160 },
+  photo: { ...StyleSheet.absoluteFillObject, width: '100%', height: 160 },
   photoSpinner: { position: 'absolute', alignSelf: 'center', top: '46%' },
+  /* Same height as the photo so the layout below it never shifts. The image
+     itself is absolutely positioned over this while it fades in. */
+  photoPlaceholder: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   headline: {
     fontFamily: FontFamily.bold,
     fontSize: 26,
