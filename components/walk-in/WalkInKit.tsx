@@ -385,8 +385,6 @@ interface WalkInScreenProps {
   headerRight?: React.ReactNode;
   scroll?: boolean;
   contentStyle?: ViewStyle;
-  /** Drop the Skip control. Used by the account gate, which is a hard stop. */
-  hideSkip?: boolean;
 }
 
 export function WalkInScreen({
@@ -397,7 +395,6 @@ export function WalkInScreen({
   headerRight,
   scroll,
   contentStyle,
-  hideSkip,
 }: WalkInScreenProps) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -440,17 +437,6 @@ export function WalkInScreen({
 
         <View style={styles.headerRight}>
           {headerRight}
-          {hideSkip ? null : (
-          <Pressable
-            onPress={() => router.replace('/(main-tabs)/home')}
-            hitSlop={12}
-            accessibilityRole="button"
-            accessibilityLabel="Skip walk-in preview"
-            style={({ pressed }) => [styles.skip, pressed && { opacity: 0.7 }]}
-          >
-            <Text style={styles.skipText}>Skip</Text>
-          </Pressable>
-          )}
         </View>
       </View>
 
@@ -606,13 +592,6 @@ const styles = StyleSheet.create({
     minWidth: 40,
     justifyContent: 'flex-end',
   },
-  skip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255,255,255,0.72)',
-  },
-  skipText: { fontFamily: FontFamily.semiBold, fontSize: 13.5, color: WI.muted },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 7, width: 150 },
   brandMark: { width: 32, height: 32 },
   brandName: { fontFamily: FontFamily.bold, fontSize: 16.5, color: WI.ink },

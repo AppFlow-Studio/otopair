@@ -131,7 +131,7 @@ export default function CreateAccountGateScreen() {
   const subtitle = data.shop;
 
   return (
-    <WalkInScreen hideSkip>
+    <WalkInScreen>
       <View style={styles.body}>
         <Text style={styles.title}>{data.vehicleShort}</Text>
         {subtitle ? <Text style={styles.subtitle}>{subtitle}</Text> : null}
