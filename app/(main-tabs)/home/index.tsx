@@ -144,21 +144,12 @@ import { ProviderTypesSection } from "@/components/home/ProviderTypesSection";
 import { VehicleMaintenanceCard } from "@/components/home/VehicleMaintenanceCard";
 import { NowTierCallout } from "@/components/home/NowTierCallout";
 import { OtoPairIcon } from "@/components/icons/oto-pair";
+import { tutorialSeenKey } from "@/lib/tutorialSeen";
 
-/**
- * Local mirror of users.tutorialSeenAt. The server stamp is the durable,
- * cross-device record; this exists so a failed or slow write cannot show a
- * driver the tour a second time.
- *
- * NAMESPACED PER USER. v1 was a single device-wide key, which meant the
- * mirror outlived the account it belonged to: once ANY account finished the
- * tour on a device, every later account on that device was treated as having
- * seen it and the tour never appeared again. That is #306, and it is this
- * mirror over-correcting the #251 fix rather than anything to do with adding
- * a car. The server stamp it mirrors is per-account, so the mirror has to be
- * too.
- */
-const tutorialSeenKey = (userId: string) => `otopair.tutorialSeen.v2.${userId}`;
+// Moved to lib/tutorialSeen.ts — CoachMarkHost needs the same answer for its
+// `first_run` trigger, and two readers of one flag should not each carry their
+// own copy of the key. See that file for why it is namespaced per user (#306).
+
 const TUTORIAL_STAMP_ATTEMPTS = 4;
 const TUTORIAL_STAMP_RETRY_MS = 1500;
 

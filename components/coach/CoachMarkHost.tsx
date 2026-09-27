@@ -27,6 +27,7 @@ import { api } from "@/convex/_generated/api";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { FORCE_COACH_MARKS_EVERY_LAUNCH } from "@/constants/devFlags";
+import { readTutorialSeenLocal } from "@/lib/tutorialSeen";
 import { useCoachRegistry, type CoachRect } from "./CoachContext";
 import { CoachOverlay } from "./CoachOverlay";
 import { COACH_MARKS, coachMarkKey, marksForRoute, type CoachMark } from "./coachMarks";
@@ -119,13 +120,44 @@ export function CoachMarkHost() {
     };
   }, []);
 
+  /* Local mirror of the tutorial stamp, for `first_run` below.
+   *
+   * Temur's review of PR #92: `first_run` gated on the SERVER stamp alone, so
+   * if `markTutorialSeen` never lands the driver is stuck — the local mirror
+   * holds the tour closed (correctly, they've seen it) while `first_run` stays
+   * false forever, and the `search` hint never appears. The Home screen
+   * already retries the stamp four times; this covers the case where all four
+   * fail, which is exactly the case the mirror was added for.
+   *
+   * Read once on mount, same as the seen-marks read above. */
+  const [tutorialSeenLocal, setTutorialSeenLocal] = useState(false);
+  const meId = me?._id ? String(me._id) : null;
+  useEffect(() => {
+    if (!meId) return;
+    let cancelled = false;
+    void readTutorialSeenLocal(meId).then((seen) => {
+      if (!cancelled && seen) setTutorialSeenLocal(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [meId]);
+
   const triggerMet = useCallback(
     (mark: CoachMark): boolean => {
       switch (mark.trigger) {
         case "first_run":
           // The phone-mock tour has to be behind them, or this lands on top
           // of it. `tutorialSeenAt` is stamped on completion OR skip.
-          return !!me && (me as { tutorialSeenAt?: number }).tutorialSeenAt != null;
+          //
+          // OR the local mirror, not instead of it: the server stamp is the
+          // cross-device truth and must stay the primary signal, but a driver
+          // whose stamp failed to write has still finished the tour on THIS
+          // device and should still get the hint.
+          return (
+            (!!me && (me as { tutorialSeenAt?: number }).tutorialSeenAt != null) ||
+            tutorialSeenLocal
+          );
         case "first_vehicle":
           return vehicleCount > 0;
         case "first_booking":
@@ -138,7 +170,7 @@ export function CoachMarkHost() {
           return false;
       }
     },
-    [me, vehicleCount, bookingCount],
+    [me, vehicleCount, bookingCount, tutorialSeenLocal],
   );
 
   /** The one mark eligible right now, if any. */
