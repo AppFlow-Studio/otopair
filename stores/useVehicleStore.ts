@@ -37,6 +37,10 @@ export interface Vehicle {
   mileage?: number;
   /** Vehicle image source (optional) */
   imageSource?: ImageSourcePropType;
+  /** True while a photo lookup for this VIN is still in flight. Lets a card
+   *  distinguish "no photo" from "not yet" and wait rather than flashing the
+   *  covered-car placeholder. */
+  imagePending?: boolean;
   /** Whether this is the default vehicle */
   isDefault?: boolean;
   /** Convex engine ID for car-specific service labor/parts (from vehicles.engine_id) */

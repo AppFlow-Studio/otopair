@@ -851,6 +851,15 @@ export default function CarsHomeScreen() {
   // "Resolved by [shop]" card, so it folds back into Healthy afterward.
   const acknowledgeResolution = useMutation(api.maintenance.acknowledgeResolution);
   const [vehicleImageUrls, setVehicleImageUrls] = useState<Record<string, string>>({});
+  /* VINs whose image lookup has FINISHED — succeeded, returned nothing, or
+     threw. Until a VIN is in here, "no image" means "not yet", and the card
+     shows a spinner instead of the covered-car placeholder. Without this the
+     two are indistinguishable at render time and the garage flashes a shrouded
+     car every time it opens. */
+  const [imageSettledVins, setImageSettledVins] = useState<Record<string, true>>({});
+  const markImageSettled = useCallback((vin: string) => {
+    setImageSettledVins((prev) => (prev[vin] ? prev : { ...prev, [vin]: true }));
+  }, []);
 
   // Use cached image_url from Convex, or fetch from API and save it
   useEffect(() => {
@@ -907,12 +916,18 @@ export default function CarsHomeScreen() {
         const model = meta?.model ?? "";
         const color = meta?.color ?? r.ownership?.color ?? "";
         const trim = r.trimName ?? undefined;
-        if (!make || !model) return;
-        fetchVehicleImageUrl(make, model, veh?.year, r.vin, color, trim).then((url) => {
-          if (!url) return;
-          setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: url }));
-          saveVehicleImageUrl({ vin: r.vin, image_url: url });
-        });
+        // Nothing to look up with — settled, and settled empty.
+        if (!make || !model) { markImageSettled(r.vin); return; }
+        fetchVehicleImageUrl(make, model, veh?.year, r.vin, color, trim)
+          .then((url) => {
+            if (!url) return;
+            setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: url }));
+            saveVehicleImageUrl({ vin: r.vin, image_url: url });
+          })
+          // Settled either way — a lookup that found nothing is an answer, and
+          // the card needs to stop waiting and show the placeholder.
+          .catch(() => {})
+          .finally(() => markImageSettled(r.vin));
       };
 
       if (cachedUrl && isTransparent) {
@@ -929,6 +944,7 @@ export default function CarsHomeScreen() {
           return;
         }
         setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: cachedUrl }));
+        markImageSettled(r.vin);
         return;
       }
 
@@ -936,7 +952,7 @@ export default function CarsHomeScreen() {
       // via saveVehicleImageUrl so subsequent loads short-circuit above.
       doFetch();
     });
-  }, [listVehicles]);
+  }, [listVehicles, markImageSettled]);
 
   // Map Convex list to Vehicle[] for CarCarousel (also track ownership IDs + raw ownership)
   const { vehicles, ownershipIds, ownerships, colorFamilies, vehicleConfigIds } = useMemo(() => {
@@ -987,6 +1003,10 @@ export default function CarsHomeScreen() {
           imageSource: vehicleImageUrls[r.vin]
             ? { uri: vehicleImageUrls[r.vin] }
             : undefined,
+          // "No imageSource yet" is ambiguous — it means both "this car has no
+          // photo" and "the lookup hasn't come back". This disambiguates, so a
+          // card can wait instead of flashing the covered-car placeholder.
+          imagePending: !vehicleImageUrls[r.vin] && !imageSettledVins[r.vin],
           logoSource: undefined,
           condition: undefined,
           nextUnlock: undefined,
@@ -1017,7 +1037,7 @@ export default function CarsHomeScreen() {
       colorFamilies: paired.map((p) => p.colorFamily),
       vehicleConfigIds: paired.map((p) => p.vehicleConfigId),
     };
-  }, [listVehicles, vehicleImageUrls]);
+  }, [listVehicles, vehicleImageUrls, imageSettledVins]);
 
   // Derive the active index from the VIN anchor. If the anchored VIN isn't in
   // the list (first load, or active vehicle was removed), fall back to 0.
