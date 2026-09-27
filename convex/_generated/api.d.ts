@@ -88,6 +88,7 @@ import type * as devOnly_importPorscheBundle from "../devOnly/importPorscheBundl
 import type * as devOnly_laborValidation from "../devOnly/laborValidation.js";
 import type * as devOnly_laborWebSpread from "../devOnly/laborWebSpread.js";
 import type * as devOnly_makeCoverageAudit from "../devOnly/makeCoverageAudit.js";
+import type * as devOnly_mintWalkinLink from "../devOnly/mintWalkinLink.js";
 import type * as devOnly_oilCoverage from "../devOnly/oilCoverage.js";
 import type * as devOnly_olpProbe from "../devOnly/olpProbe.js";
 import type * as devOnly_partResurrectSweep from "../devOnly/partResurrectSweep.js";
@@ -735,6 +736,7 @@ declare const fullApi: ApiFromModules<{
   "devOnly/laborValidation": typeof devOnly_laborValidation;
   "devOnly/laborWebSpread": typeof devOnly_laborWebSpread;
   "devOnly/makeCoverageAudit": typeof devOnly_makeCoverageAudit;
+  "devOnly/mintWalkinLink": typeof devOnly_mintWalkinLink;
   "devOnly/oilCoverage": typeof devOnly_oilCoverage;
   "devOnly/olpProbe": typeof devOnly_olpProbe;
   "devOnly/partResurrectSweep": typeof devOnly_partResurrectSweep;
