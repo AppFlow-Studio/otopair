@@ -26,7 +26,7 @@
  */
 
 // 1. React & React Native
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuth, useUser } from '@clerk/clerk-expo';
 import {
   Image,
@@ -48,6 +48,7 @@ import { Check, ChevronLeft } from 'lucide-react-native';
 
 // 3. Constants
 import { BrandColors, FontFamily, OtoGradient } from '@/constants/theme';
+import { readWalkInIntent, type WalkInAuthIntent } from '@/lib/pendingWalkInClaim';
 import { useWalkInClaimStore } from '@/stores/useWalkInClaimStore';
 import { formatServiceDisplayName } from '@/utils/serviceDisplayName';
 
@@ -224,7 +225,29 @@ export function useReturningCustomer(): { isReturning: boolean; firstName: strin
   const fromAccount = user?.firstName?.trim() || null;
   const fromShop = claim?.firstName?.trim() || null;
 
-  const isReturning = !!isSignedIn;
+  /* Which branch of the walk-in flow to show.
+   *
+   * `isSignedIn` used to decide this, and cannot any more: the claim gate now
+   * requires an account BEFORE the flow starts, so by the time anyone reaches
+   * these screens they are signed in either way. What separates them is which
+   * button they pressed at that gate — create an account, or sign in — and
+   * that is what gets parked alongside the token.
+   *
+   * Falls back to `isSignedIn` when there is no parked intent, which covers a
+   * customer already signed in when they opened the link: they never saw the
+   * gate, and they are by definition returning.
+   */
+  const [intent, setIntent] = useState<WalkInAuthIntent | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void readWalkInIntent().then((v) => {
+      if (!cancelled) setIntent(v);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const isReturning = intent ? intent === 'existing' : !!isSignedIn;
 
   return {
     isReturning,

@@ -24,6 +24,7 @@ import { BrandColors } from "@/constants/theme";
 import { shouldResumeMidSetup, shouldRunStartupRedirect } from "@/lib/auth-routing";
 import { getOnboardingFinishedLaterKey, hasOnboardingInProgress } from "@/lib/onboarding-resume";
 import { useConnection } from "@/hooks/useConnection";
+import { takeParkedClaimToken } from "@/lib/pendingWalkInClaim";
 
 export default function Index() {
   const { isSignedIn, isLoaded, userId: clerkUserId } = useAuth();
@@ -144,6 +145,34 @@ export default function Index() {
           return false;
         }
       };
+
+      /* WALK-IN RESUME — before any of the onboarding routing below.
+       *
+       * The walk-in claim gate sends a signed-out customer to auth and parks
+       * their token. They are coming back for one specific reason: the job the
+       * shop handed them a link for. Sending them to Home first and expecting
+       * them to find it would waste the handoff the whole flow exists to
+       * protect.
+       *
+       * Routing back through /claim/[token] rather than claiming here: that
+       * screen already owns the signed-in path — it calls `claimByToken` and
+       * lands on the tracker. One place that knows how to claim, not two.
+       *
+       * This also closes a real hole. A brand-new signup adopts the stub
+       * inside `users.getOrCreateMe`, but an EXISTING account is found by
+       * clerkUserId and returns long before that adoption code — so signing in
+       * used to leave the car on the shop's stub. Coming back through the
+       * claim screen runs `claimByToken` for both.
+       */
+      const parkedClaim = await takeParkedClaimToken();
+      if (parkedClaim) {
+        if (hasNavigated.current) return;
+        console.log("[walk-in] resuming parked claim after auth");
+        if (safeReplace({ pathname: "/claim/[token]", params: { token: parkedClaim } } as never)) {
+          hasNavigated.current = true;
+        }
+        return;
+      }
 
       // Onboarding fully complete → home
       if (me?.onboardingCompleted === true) {

@@ -36,6 +36,7 @@ import { useAuth } from '@clerk/clerk-expo';
 
 import { api } from '@/convex/_generated/api';
 import { useWalkInClaimStore, type WalkInTracker } from '@/stores/useWalkInClaimStore';
+import { parkClaimToken } from '@/lib/pendingWalkInClaim';
 import { GhostButton, PrimaryCta, WalkInScreen, WI } from '@/components/walk-in/WalkInKit';
 import { FontFamily } from '@/constants/theme';
 
@@ -106,6 +107,10 @@ export default function ClaimTokenScreen() {
     // Routing does not wait on the result. The merge is idempotent and the
     // Cars tab is a live Convex subscription, so the car appears the moment it
     // lands, whether or not this screen is still mounted.
+    // AUTH FIRST (Ahmad, 2026-09-27). A walk-in job is now shown only to a
+    // signed-in account: creating one takes you down the new-customer branch,
+    // signing in takes you down the returning one, and the app never has to
+    // guess which you are. The gate screen below does the asking.
     if (isSignedIn) {
       // Keep the VIN the merge confirms: "Go to my Garage" downstream opens
       // ON this car rather than on whichever one is primary.
@@ -119,7 +124,10 @@ export default function ClaimTokenScreen() {
       router.replace('/(walk-in)/tracker');
       return;
     }
-    router.replace('/(walk-in)');
+    // Signed out — hold here and render the gate rather than routing into the
+    // flow. Park the token first: OAuth can cold-start the app on the way back
+    // and the in-memory store would not survive it.
+
   }, [token, isClaimable, result, setClaim, setVin, router, isSignedIn, claimByToken]);
 
 
@@ -129,6 +137,55 @@ export default function ClaimTokenScreen() {
         <View style={styles.center}>
           <ActivityIndicator color={WI.accent} />
           <Text style={styles.loading}>Opening your job…</Text>
+        </View>
+      </WalkInScreen>
+    );
+  }
+
+  /* THE GATE. A valid link, and nobody signed in.
+   *
+   * Signing in or creating an account is what decides which branch of the
+   * walk-in flow they get, so it has to happen before the flow starts — a new
+   * account goes down the new-customer path, an existing one down the
+   * returning path, and nothing has to be inferred.
+   *
+   * It still shows WHAT they are signing in for. "Sign in to continue" with no
+   * context is a wall; naming their car and the shop is the shop's handoff
+   * arriving intact, and it is the thing that makes the ask reasonable. */
+  if (isClaimable && !isSignedIn) {
+    const r = result as Exclude<ClaimResult, null | { expired: true }>;
+    const car = r.vehicleSummary?.trim();
+    const shop = r.shopName?.trim();
+    return (
+      <WalkInScreen>
+        <View style={styles.problem}>
+          <Text style={styles.headline}>
+            {car ? `Your ${car} is at the shop` : 'Your car is at the shop'}
+          </Text>
+          <Text style={styles.body}>
+            {shop
+              ? `Sign in or create an account to track this appointment at ${shop} — and keep the car, its history and every visit in one place.`
+              : 'Sign in or create an account to track this appointment — and keep the car, its history and every visit in one place.'}
+          </Text>
+        </View>
+        <View style={styles.footer}>
+          {/* The choice here IS the branch. Parked with the token because
+              everyone comes back signed in, so nothing downstream could
+              otherwise tell a fresh account from one that already existed. */}
+          <PrimaryCta
+            label="Create an account"
+            onPress={() => {
+              void parkClaimToken(token, 'new');
+              router.replace('/(onboarding)');
+            }}
+          />
+          <GhostButton
+            label="Already have one? Sign in"
+            onPress={() => {
+              void parkClaimToken(token, 'existing');
+              router.replace('/(onboarding)');
+            }}
+          />
         </View>
       </WalkInScreen>
     );
