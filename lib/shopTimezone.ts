@@ -37,6 +37,15 @@ export function shopTodayISO(timezone = DEFAULT_SHOP_TIMEZONE, now = new Date())
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
+/** A local calendar Date representing the shop's current business day. */
+export function shopTodayCalendarDate(
+  timezone = DEFAULT_SHOP_TIMEZONE,
+  now = new Date(),
+): Date {
+  const [year, month, day] = shopTodayISO(timezone, now).split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
 function shopLocalDateTime(date: string, time: string, timezone: string) {
   const [year, month, day] = date.split("-").map(Number);
   const [hour, minute] = time.split(":").map(Number);
@@ -44,6 +53,20 @@ function shopLocalDateTime(date: string, time: string, timezone: string) {
   const initialOffset = timezoneOffsetMs(timezone, new Date(utcGuess));
   const adjusted = utcGuess - initialOffset;
   return new Date(adjusted - timezoneOffsetMs(timezone, new Date(adjusted)) + initialOffset);
+}
+
+/** Start and end instants for the shop's current business day. */
+export function shopTodayBounds(
+  timezone = DEFAULT_SHOP_TIMEZONE,
+  now = new Date(),
+): { start: number; end: number } {
+  const today = shopTodayISO(timezone, now);
+  const [year, month, day] = today.split("-").map(Number);
+  const tomorrow = new Date(Date.UTC(year, month - 1, day + 1)).toISOString().slice(0, 10);
+  return {
+    start: shopLocalDateTime(today, "00:00", timezone).getTime(),
+    end: shopLocalDateTime(tomorrow, "00:00", timezone).getTime(),
+  };
 }
 
 /** Short, DST-aware label such as "EDT" or "PST" for a shop-local appointment. */
