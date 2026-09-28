@@ -24,6 +24,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Text } from "@/components/shared-ui";
 import { TIRE_TIERS, TIRE_TYPES } from "@/constants/tireFlow";
+import { localTimezoneAbbreviation } from "@/lib/shopTimezone";
 import { useTireBookingStore } from "@/stores/useTireBookingStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 
@@ -105,7 +106,8 @@ export const QuoteRequestConfirmationSheet = forwardRef<QuoteRequestConfirmation
       const now = Date.now();
       const start = new Date(now + 5 * 60 * 1000);
       const end = new Date(now + 10 * 60 * 1000);
-      return `${formatClock(start)} – ${formatClock(end)}`;
+      const timezone = localTimezoneAbbreviation(end);
+      return `${formatClock(start)} – ${formatClock(end)}${timezone ? ` ${timezone}` : ""}`;
     }, []);
 
     const vehicleLabel = requestVehicle

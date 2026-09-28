@@ -51,6 +51,7 @@ import { positionFromOption } from "@/constants/serviceVariants";
 import { useWalletCheckout } from "@/hooks/useWalletCheckout";
 import { deriveDisclosedRange, formatRange } from "@/lib/disclosedRange";
 import { formatDurationForCar } from "@/lib/formatDuration";
+import { formatShopTime } from "@/lib/shopTimezone";
 import { computeBookingTax } from "@/lib/tax";
 import { computePlatformFeeDollars } from "@/lib/platformFee";
 import { computeDealerLaborSavings } from "@/lib/dealerSavings";
@@ -163,7 +164,7 @@ export default function PaymentScreen() {
 
   // ═══════════════ COMPUTED ═══════════════
   const appointmentDate = getFormattedAppointmentDate();
-  const appointmentTime = getFormattedAppointmentTime();
+  const appointmentTimeFallback = getFormattedAppointmentTime();
   const bookingVehicleVin = resolveBookingVehicleVin(
     quoteAcceptContext?.vehicleVin,
     selectedVehicleVin,
@@ -189,6 +190,13 @@ export default function PaymentScreen() {
   const shop = useMemo(() => {
     return resolvedShopId ? getShopById(resolvedShopId) : null;
   }, [resolvedShopId, getShopById]);
+  const appointmentTime = selectedMechanicSlot?.scheduledTime
+    ? formatShopTime(
+        selectedMechanicSlot.scheduledTime,
+        selectedMechanicSlot.scheduledDate,
+        shop?.timezone,
+      )
+    : appointmentTimeFallback;
   const laborRate = shop?.labor_rate;
   const mechanicDisplayName = mechanic?.name ?? "Any available mechanic";
   const mechanicSubtitle =

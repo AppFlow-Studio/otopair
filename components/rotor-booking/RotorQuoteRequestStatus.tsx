@@ -23,6 +23,7 @@ import Animated, {
 import { Text } from "@/components/shared-ui";
 import { BrandColors } from "@/constants/theme";
 import { formatRotorsLabel } from "@/constants/rotorFlow";
+import { localTimezoneAbbreviation } from "@/lib/shopTimezone";
 import { useRotorBookingStore } from "@/stores/useRotorBookingStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 
@@ -53,7 +54,8 @@ export function RotorQuoteRequestStatus({ onViewUpcoming, onGoBack, vehicleVin }
     const now = Date.now();
     const start = new Date(now + 5 * 60 * 1000);
     const end = new Date(now + 10 * 60 * 1000);
-    return `${formatClock(start)} – ${formatClock(end)}`;
+    const timezone = localTimezoneAbbreviation(end);
+    return `${formatClock(start)} – ${formatClock(end)}${timezone ? ` ${timezone}` : ""}`;
   }, []);
 
   const vehicleLabel = requestVehicle

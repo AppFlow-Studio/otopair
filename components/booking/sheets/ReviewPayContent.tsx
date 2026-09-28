@@ -47,6 +47,7 @@ import { positionFromOption } from "@/constants/serviceVariants";
 import { useWalletCheckout } from "@/hooks/useWalletCheckout";
 import { deriveDisclosedRange } from "@/lib/disclosedRange";
 import { formatDurationForCar } from "@/lib/formatDuration";
+import { formatShopTime, formatShopTimeRange } from "@/lib/shopTimezone";
 import { computeBookingTax } from "@/lib/tax";
 import { computePlatformFeeDollars } from "@/lib/platformFee";
 import { computeDealerLaborSavings } from "@/lib/dealerSavings";
@@ -146,7 +147,7 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
 
   // ═══════════════ COMPUTED ═══════════════
   const appointmentDate = getFormattedAppointmentDate();
-  const appointmentTime = getFormattedAppointmentTime();
+  const appointmentTimeFallback = getFormattedAppointmentTime();
   const selectedVehicle = getSelectedVehicle();
 
   // Get selected mechanic
@@ -163,6 +164,13 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
   const shop = useMemo(() => {
     return resolvedShopId ? getShopById(resolvedShopId) : null;
   }, [resolvedShopId, getShopById]);
+  const appointmentTime = selectedMechanicSlot?.scheduledTime
+    ? formatShopTime(
+        selectedMechanicSlot.scheduledTime,
+        selectedMechanicSlot.scheduledDate,
+        shop?.timezone,
+      )
+    : appointmentTimeFallback;
   const laborRate = shop?.labor_rate;
   const mechanicDisplayName = mechanic?.name ?? "Any available mechanic";
   const mechanicFirstName = mechanic?.name?.trim().split(/\s+/)[0] ?? "any available mechanic";
@@ -655,11 +663,20 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
   const appointmentDisplay = useMemo(() => {
     if (!appointmentDate || !appointmentTime) return "Not scheduled";
     const totalMinutes = Math.max(0, Math.round((breakdown.laborHours ?? 0) * 60));
-    const endLabel = addMinutesToTimeLabel(appointmentTime, totalMinutes);
+    const rawStart = selectedMechanicSlot?.scheduledTime;
+    const endLabel = addMinutesToTimeLabel(rawStart ?? appointmentTime, totalMinutes);
+    if (rawStart && endLabel) {
+      return `${appointmentDate} · ${formatShopTimeRange(
+        rawStart,
+        endLabel,
+        selectedMechanicSlot.scheduledDate,
+        shop?.timezone,
+      )}`;
+    }
     return endLabel
       ? `${appointmentDate} · ${appointmentTime} – ${endLabel}`
       : `${appointmentDate} · ${appointmentTime}`;
-  }, [appointmentDate, appointmentTime, breakdown.laborHours]);
+  }, [appointmentDate, appointmentTime, breakdown.laborHours, selectedMechanicSlot, shop?.timezone]);
 
   // Payment method
   const selectedPaymentMethod = getSelectedPaymentMethod();

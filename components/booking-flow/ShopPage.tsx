@@ -26,6 +26,7 @@ import { useNextAvailabilityForShop } from "@/hooks/useNextAvailabilityForShop";
 import { useNextAvailabilityPerMechanicForShop } from "@/hooks/useNextAvailabilityPerMechanicForShop";
 import { useShopFixedPricesForServices } from "@/hooks/useShopFixedPricesForServices";
 import { buildShopPriceLabel } from "@/lib/shopPriceLabel";
+import { formatShopTime } from "@/lib/shopTimezone";
 import { weekdayLongFromISO } from "@/utils/timeSlotUtils";
 import type { MechanicAvailabilitySlot, Service, Shop } from "@/stores/types/store.types";
 
@@ -134,7 +135,7 @@ export function ShopPage({
         photoUrl: null,
         slotLabel:
           shopSlots.length > 0
-            ? `Earliest · ${slotShort(shopSlots[0])}`
+            ? `Earliest · ${slotShort(shopSlots[0], shop.timezone)}`
             : "Earliest availability",
       },
     ];
@@ -146,13 +147,13 @@ export function ShopPage({
         mechanicId: mechId,
         name: mech.name,
         photoUrl: mech.photoUrl,
-        slotLabel: earliest ? slotShort(earliest) : "No open times",
+        slotLabel: earliest ? slotShort(earliest, shop.timezone) : "No open times",
         verified: mech.isVerified,
         isBay: mech.isBay,
       });
     }
     return opts;
-  }, [shopSlots, slotsByMechanicId, allMechanicsMap]);
+  }, [shopSlots, slotsByMechanicId, allMechanicsMap, shop.timezone]);
 
   const realMechanics = useMemo(
     () => mechanicOptions.filter((o) => o.mechanicId !== null),
@@ -213,7 +214,9 @@ export function ShopPage({
                   : recommendedSlot.dayOfWeek}
               </Text>
               <Text weight="bold" color="#0F172A" style={styles.recTime}>
-                {recommendedSlot.time}
+                {recommendedSlot.scheduledTime
+                  ? formatShopTime(recommendedSlot.scheduledTime, recommendedSlot.scheduledDate, shop.timezone)
+                  : recommendedSlot.time}
               </Text>
             </>
           ) : (
@@ -412,8 +415,11 @@ function StackedAvatars({ mechanics }: { mechanics: MechanicOption[] }) {
 // ── Helpers ────────────────────────────────────────────────────
 
 /** "Fri · 6:30 PM" — compact earliest-slot label for a picker row. */
-function slotShort(slot: MechanicAvailabilitySlot): string {
-  return `${slot.dayOfWeek} · ${slot.time}`;
+function slotShort(slot: MechanicAvailabilitySlot, timezone?: string): string {
+  const time = slot.scheduledTime
+    ? formatShopTime(slot.scheduledTime, slot.scheduledDate, timezone)
+    : slot.time;
+  return `${slot.dayOfWeek} · ${time}`;
 }
 
 function formatTotalMinutes(min: number): string {
