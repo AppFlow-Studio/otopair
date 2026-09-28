@@ -40,6 +40,7 @@ import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 
 import { OtoGradient, ServiceLogColors as C, ServiceLogFonts as F } from "@/constants/theme";
 import { useMyBookingsWithDetails } from "@/hooks/useMyBookingsWithDetails";
+import { vehicleYearMakeModel } from "@/lib/vehicleName";
 
 const MONTHS_LONG = [
   "JANUARY", "FEBRUARY", "MARCH", "APRIL", "MAY", "JUNE",
@@ -130,30 +131,11 @@ function extractModel(full: string): string {
   return tokens[1];
 }
 
-// Sibling returning "YEAR MAKE MODEL" with the trim dropped.
-function extractYearMakeModel(year: string | undefined, carModel: string): string {
-  const tokens = carModel.trim().split(/\s+/).filter(Boolean);
-  const yr = (year ?? "").trim();
-  if (tokens.length === 0) return yr;
-  if (tokens.length === 1) return [yr, tokens[0]].filter(Boolean).join(" ");
-
-  const firstTwo = `${tokens[0]} ${tokens[1]}`.toLowerCase();
-  const isTwoWordMake =
-    firstTwo === "land rover" ||
-    firstTwo === "alfa romeo" ||
-    firstTwo === "aston martin";
-  if (isTwoWordMake) {
-    return [yr, `${tokens[0]} ${tokens[1]}`, tokens[2] ?? ""].filter(Boolean).join(" ");
-  }
-
-  const make = tokens[0];
-  let model = tokens[1];
-  if (model.toLowerCase() === "model" && tokens[2]) model = `Model ${tokens[2]}`;
-  else if (/^\d+$/.test(model) && tokens[2]?.toLowerCase() === "series") {
-    model = `${model} Series`;
-  }
-  return [yr, make, model].filter(Boolean).join(" ");
-}
+// Sibling returning "YEAR MAKE MODEL" with the trim dropped. Shared with the
+// redesigned bookings card. The copy that lived here dropped the second word
+// of a two-word model, so "Land Rover Range Rover Sport" came out as
+// "Land Rover Range"; tests/vehicleName.test.ts pins that case now.
+const extractYearMakeModel = vehicleYearMakeModel;
 
 function channelKey(b: CompletedBooking): string {
   return `${(b.carYear ?? "").trim()}|${(b.carModel ?? "").trim()}|${(b.vin ?? "").trim()}`;

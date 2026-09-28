@@ -133,7 +133,7 @@ export function PaymentBreakdown({
           >
             <Flag size={16} color="#92400e" />
             <Text size="sm" weight="semiBold" color="#92400e" style={{ marginLeft: 8 }}>
-              Something wrong with this charge?
+              Something not right? We&apos;ll look into it
             </Text>
           </Pressable>
         ) : null
@@ -213,20 +213,24 @@ function PartRow({ part }: { part: PaymentBreakdownPart }) {
   );
 }
 
+/* Customer-facing copy, per the Sept 21 decision: the word "dispute" never
+   reaches the driver. "Dispute" is what the record is called; what the driver
+   did was raise a question, and telling them they have opened a dispute makes
+   a calm ask sound adversarial. Statuses read as progress, not as a case file. */
 function disputeStatusLabel(status: string): string {
   switch (status) {
     case "open":
-      return "Dispute filed — under review";
+      return "We're looking into this";
     case "in_review":
-      return "Dispute under review by Otopair";
+      return "Otopair is reviewing this";
     case "resolved_refund":
-      return "Dispute resolved — refund issued";
+      return "Sorted — a refund is on its way";
     case "resolved_no_refund":
-      return "Dispute resolved — no refund";
+      return "We've finished looking into this";
     case "withdrawn":
-      return "Dispute withdrawn";
+      return "You closed this";
     default:
-      return "Dispute status updated";
+      return "There's an update on this";
   }
 }
 

@@ -191,10 +191,20 @@ const styles = StyleSheet.create({
   },
   imageContainer: {
     width: "48%",
-    aspectRatio: 1,
+    // 4:3, matching the portal's gallery tiles. At 1:1 a landscape photo of a
+    // car lost both ends to the crop, so the same upload framed differently
+    // depending on which surface you looked at.
+    aspectRatio: 4 / 3,
     borderRadius: BorderRadius.lg,
     overflow: "hidden",
-    backgroundColor: "#F3F4F6",
+    backgroundColor: BrandColors.white,
+    // Hairline frame. The tile used to be #F3F4F6 on a #F5F5F7 page — two
+    // points apart — so a photo with a white background had no visible edge
+    // and read as a drawing floating on the page, while a dark photo read as
+    // a card. Same grid, two different-looking tiles (Ahmad, 2026-09-24).
+    // The portal's gallery borders its tiles for exactly this reason.
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#E3E5E9",
   },
   image: {
     width: "100%",

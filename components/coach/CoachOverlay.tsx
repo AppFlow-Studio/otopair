@@ -41,12 +41,7 @@ import { FontFamily } from "@/constants/theme";
 import { OtoEasing } from "@/constants/animations";
 import { useReducedMotion } from "@/lib/accessibility";
 import type { CoachRect } from "./CoachContext";
-import {
-  COACH_STEPS,
-  COACH_STEP_COUNT,
-  coachProgressLabel,
-  isLastCoachStep,
-} from "./coachSteps";
+import type { CoachMark } from "./coachMarks";
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 
@@ -58,7 +53,7 @@ const MUTED = "#5A6675";
 const DIM = "#D0D7E1";
 
 /** Breathing room between the element and the edge of the hole. */
-const PAD = 6;
+const PAD_DEFAULT = 6;
 /** Gap between the hole and the tooltip, enough for the caret plus air. */
 const GAP = 22;
 const TIP_W = 313;
@@ -70,6 +65,8 @@ const MAX_TARGET_FRACTION = 0.45;
 const VIEWPORT_INSET = 8;
 /** Less of the element than this on screen and there is nothing to point at. */
 const MIN_VISIBLE = 44;
+/** Keep the tooltip this far from the screen edges. */
+const TIP_MARGIN = 56;
 
 const HOLE_MS = 420;
 const FADE_IN_MS = 260;
@@ -98,24 +95,21 @@ function holePath(x: number, y: number, w: number, h: number, r: number) {
 
 interface CoachOverlayProps {
   visible: boolean;
-  index: number;
-  /** The rect for the current step, or null while we wait for it. */
+  /** The single hint being shown. */
+  mark: CoachMark;
+  /** Its target's measured rect, already settled by the caller. */
   rect: CoachRect | null;
-  onAdvance: () => void;
-  onBack: () => void;
-  onSkip: () => void;
+  onDismiss: () => void;
 }
 
 export function CoachOverlay({
   visible,
-  index,
+  mark,
   rect,
-  onAdvance,
-  onBack,
-  onSkip,
+  onDismiss,
 }: CoachOverlayProps) {
   const reduceMotion = useReducedMotion();
-  const step = COACH_STEPS[index];
+  const step = mark;
   const wantsTarget = !!step?.target;
 
   const hx = useSharedValue(SCREEN_W / 2);
@@ -165,6 +159,9 @@ export function CoachOverlay({
    * stayed on screen and the tour appeared to be pointing at something
    * unrelated on a completely different tab.
    */
+  /** Measured tooltip height, so its position can be clamped on screen. */
+  const [tipH, setTipH] = useState(0);
+
   const [shown, setShown] = useState<{
     x: number;
     y: number;
@@ -176,25 +173,28 @@ export function CoachOverlay({
   useEffect(() => {
     setShown(null);
     settled.current = false;
-  }, [index]);
+  }, [mark.id]);
+
+  /** Per-mark halo; a card with its own padding wants less than a bare control. */
+  const pad = mark.pad ?? PAD_DEFAULT;
 
   useEffect(() => {
     if (!usable) return;
-    const rawTop = usable.y - PAD;
-    const rawBottom = usable.y + usable.height + PAD;
+    const rawTop = usable.y - pad;
+    const rawBottom = usable.y + usable.height + pad;
     // Clamp into the viewport, leaving the status bar and the very bottom edge
     // alone so the hole never bleeds off screen.
     const top = Math.max(VIEWPORT_INSET, rawTop);
     const bottom = Math.min(SCREEN_H - VIEWPORT_INSET, rawBottom);
     setShown({
-      x: usable.x - PAD,
+      x: usable.x - pad,
       y: top,
-      w: usable.width + PAD * 2,
+      w: usable.width + pad * 2,
       h: bottom - top,
-      r: usable.radius + PAD / 2,
+      r: usable.radius + pad / 2,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rectKey]);
+  }, [rectKey, pad]);
 
   /** Too little of it showing to point at — scrolled away, or clipped. */
   const hole = shown && shown.h >= MIN_VISIBLE && shown.w > 0 ? shown : null;
@@ -248,7 +248,7 @@ export function CoachOverlay({
       duration: reduceMotion ? 120 : FADE_IN_MS,
       easing: OtoEasing.enter,
     });
-  }, [visible, waiting, index, reduceMotion, copy]);
+  }, [visible, waiting, mark.id, reduceMotion, copy]);
 
   // The pulse is the affordance. Without it the highlight reads as decoration
   // and the driver waits for the tooltip to do something.
@@ -288,12 +288,10 @@ export function CoachOverlay({
 
   useEffect(() => {
     if (visible && !waiting && step) {
-      AccessibilityInfo.announceForAccessibility?.(
-        `${step.title}. ${step.body} ${coachProgressLabel(index) ?? ""}`,
-      );
+      AccessibilityInfo.announceForAccessibility?.(`${step.title}. ${step.body}`);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, index, waiting]);
+  }, [visible, mark.id, waiting]);
 
   const tap = useCallback(
     (fn: () => void) => () => {
@@ -309,10 +307,25 @@ export function CoachOverlay({
   const tipLeft = hole
     ? Math.max(16, Math.min(hole.x, SCREEN_W - TIP_W - 16))
     : (SCREEN_W - TIP_W) / 2;
+  /**
+   * Always positioned by `top`, and always clamped on screen.
+   *
+   * Placing an "above" hint with `bottom` meant a target that fills the
+   * screen — the booking flow's sheets do — pushed the whole card off the
+   * top, leaving just the "Got it" peeking over the status bar. A preference
+   * for a side is not a promise there is room on it.
+   */
+  const tipTop = (() => {
+    if (!hole) return SCREEN_H / 2 - 120;
+    const h = tipH || 190;
+    const wanted = below ? hole.y + hole.h + GAP : hole.y - GAP - h;
+    return Math.max(TIP_MARGIN, Math.min(wanted, SCREEN_H - h - TIP_MARGIN));
+  })();
+
   const caretLeft = hole
     ? Math.max(tipLeft + 18, Math.min(hole.x + 40, tipLeft + TIP_W - 36))
     : 0;
-  const advanceLabel = step.cta ?? (isLastCoachStep(index) ? "Finish" : "Next  \u2192");
+
 
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
@@ -325,9 +338,12 @@ export function CoachOverlay({
         <AnimatedPath animatedProps={pathProps} fill={INK} fillOpacity={0.72} fillRule="evenodd" />
       </Svg>
 
-      {/* Swallows every tap that is not on the target. Without it the driver
-          wanders off mid-tour and the spotlight points at a dead screen. */}
-      <Pressable style={StyleSheet.absoluteFill} onPress={() => {}} accessible={false} />
+      {/* Swallows every tap that is not on the target — unless the mark is
+          non-blocking, in which case the driver is meant to keep working and
+          the hint is only there to explain. */}
+      {step.blocking === false ? null : (
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => {}} accessible={false} />
+      )}
 
       {hole ? (
         <>
@@ -352,15 +368,17 @@ export function CoachOverlay({
               { left: hole.x, top: hole.y, width: hole.w, height: hole.h, borderRadius: hole.r },
             ]}
           />
-          {/* Tapping the spotlit element advances. It sits OVER the hole
-              rather than forwarding the touch to the real control: firing the
-              live action and advancing would navigate away mid-tour. */}
+          {/* Tap-to-dismiss sits OVER the hole, so the real control never
+              fires by accident. A non-blocking mark skips it entirely — there
+              the point is that the real control DOES fire. */}
+          {step.blocking === false ? null : (
           <Pressable
-            onPress={tap(onAdvance)}
+            onPress={tap(onDismiss)}
             style={{ position: "absolute", left: hole.x, top: hole.y, width: hole.w, height: hole.h }}
             accessibilityRole="button"
-            accessibilityLabel={`${step.title}. Tap to continue`}
+            accessibilityLabel={`${step.title}. Tap to dismiss`}
           />
+          )}
         </>
       ) : null}
 
@@ -371,57 +389,34 @@ export function CoachOverlay({
             style={[
               styles.caret,
               below
-                ? { top: hole.y + hole.h + GAP - 10, left: caretLeft }
-                : { top: hole.y - GAP - 1, left: caretLeft, transform: [{ rotate: "180deg" }] },
+                ? { top: tipTop - 10, left: caretLeft }
+                : { top: tipTop + (tipH || 190) - 1, left: caretLeft, transform: [{ rotate: "180deg" }] },
             ]}
           />
         ) : null}
 
         <View
+          onLayout={(e) => setTipH(e.nativeEvent.layout.height)}
           style={[
             styles.tip,
-            { left: tipLeft },
-            hole
-              ? below
-                ? { top: hole.y + hole.h + GAP }
-                : { bottom: SCREEN_H - (hole.y - GAP) }
-              : { top: SCREEN_H / 2 - 120 },
+            { left: tipLeft, top: tipTop },
           ]}
           pointerEvents={waiting ? "none" : "auto"}
         >
-          <Text style={styles.eyebrow}>
-            {isLastCoachStep(index) ? "DONE" : `STEP ${index + 1}`}
-          </Text>
           <Text style={styles.title}>{step.title}</Text>
           <Text style={styles.body}>{step.body}</Text>
-          {hole ? <Text style={styles.hint}>Tap the highlight to continue</Text> : null}
           <View style={styles.rule} />
-          <View style={styles.footer}>
-            {index > 0 ? (
-              <Pressable onPress={tap(onBack)} hitSlop={12} accessibilityRole="button">
-                <Text style={styles.back}>Back</Text>
-              </Pressable>
-            ) : (
-              <View style={styles.backSpacer} />
-            )}
-            <Text style={styles.count}>{`${index + 1} of ${COACH_STEP_COUNT}`}</Text>
-            <Pressable onPress={tap(onAdvance)} hitSlop={12} accessibilityRole="button">
-              <Text style={styles.next}>{advanceLabel}</Text>
+          {/* One hint, one way out. No Back and no "2 of 5" — these fire
+              independently now, so a counter would be counting something the
+              driver never agreed to sit through. */}
+          <View style={styles.footerSingle}>
+            <Pressable onPress={tap(onDismiss)} hitSlop={12} accessibilityRole="button">
+              <Text style={styles.next}>Got it</Text>
             </Pressable>
           </View>
         </View>
 
-        {!isLastCoachStep(index) ? (
-          <Pressable
-            onPress={tap(onSkip)}
-            hitSlop={16}
-            style={styles.skip}
-            accessibilityRole="button"
-            accessibilityLabel="Skip the tour"
-          >
-            <Text style={styles.skipText}>Skip tour</Text>
-          </Pressable>
-        ) : null}
+
       </Animated.View>
     </View>
   );
@@ -480,10 +475,9 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   rule: { height: 1, backgroundColor: DIM, marginTop: 14 },
-  footer: {
+  footerSingle: {
     flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "flex-end",
     marginTop: 14,
   },
   back: { fontFamily: FontFamily.medium, fontSize: 15, color: "#99A1AB" },

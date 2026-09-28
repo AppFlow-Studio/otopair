@@ -11,7 +11,7 @@
  * USED IN: components/booking/ServiceBottomSheet.tsx
  */
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   Keyboard,
   Modal,
@@ -105,16 +105,35 @@ export function DiagnosticOptionsSheet({
 }: DiagnosticOptionsSheetProps) {
   const insets = useSafeAreaInsets();
   const [selectedSystem, setSelectedSystem] = useState<DiagnosticSystem | null>(null);
-  const [notes, setNotes] = useState("");
+  /**
+   * Notes per area, not one box shared by all of them.
+   *
+   * Every AreaCard used to be handed the same `notes` string and setter, so
+   * describing a brake noise and then switching to Engine showed the brake
+   * text under Engine. The driver could not describe two areas, and the text
+   * appeared to follow them around the sheet.
+   */
+  const [notesBySystem, setNotesBySystem] = useState<
+    Partial<Record<DiagnosticSystem, string>>
+  >({});
 
-  // Reset (or pre-fill) each time the sheet opens.
+  const setNotesFor = useCallback((system: DiagnosticSystem, text: string) => {
+    setNotesBySystem((prev) => ({ ...prev, [system]: text.slice(0, MAX_NOTES) }));
+  }, []);
+
+  // Reset (or pre-fill) each time the sheet opens. The incoming notes belong
+  // to the area that was confirmed, so they are seeded against that area only
+  // — otherwise re-opening to edit would drop the previous text into whatever
+  // the driver taps next.
   useEffect(() => {
-    if (visible) {
-      setSelectedSystem(initialSystem ?? null);
-      setNotes(initialNotes ?? "");
-    }
+    if (!visible) return;
+    setSelectedSystem(initialSystem ?? null);
+    setNotesBySystem(
+      initialSystem && initialNotes ? { [initialSystem]: initialNotes } : {},
+    );
   }, [visible, initialSystem, initialNotes]);
 
+  const notes = selectedSystem ? (notesBySystem[selectedSystem] ?? "") : "";
   const trimmedNotesLength = notes.trim().length;
   const notesMeetMinimum = trimmedNotesLength >= MIN_NOTES;
   const canConfirm = selectedSystem != null && notesMeetMinimum;
@@ -167,16 +186,22 @@ export function DiagnosticOptionsSheet({
             <View style={styles.optionsContainer}>
               {DIAGNOSTIC_AREAS.map((area) => {
                 const isSelected = selectedSystem === area.value;
+                // Per-area notes (#241/#253). Temur's branch reintroduced the
+                // shared `notes` string here along with the KeyboardAware
+                // wrapper; the wrapper is kept, the shared state is not —
+                // one box for four areas is the bug two testers reported.
+                const areaNotes = notesBySystem[area.value] ?? "";
+                const areaTrimmed = areaNotes.trim().length;
                 return (
                   <AreaCard
                     key={area.value}
                     area={area}
                     isSelected={isSelected}
                     onSelect={() => setSelectedSystem(area.value)}
-                    notes={notes}
-                    onChangeNotes={(t) => setNotes(t.slice(0, MAX_NOTES))}
-                    notesMeetMinimum={notesMeetMinimum}
-                    trimmedNotesLength={trimmedNotesLength}
+                    notes={areaNotes}
+                    onChangeNotes={(t) => setNotesFor(area.value, t)}
+                    notesMeetMinimum={areaTrimmed >= MIN_NOTES}
+                    trimmedNotesLength={areaTrimmed}
                   />
                 );
               })}
@@ -277,6 +302,26 @@ function AreaCard({
             style={styles.notesInput}
             textAlignVertical="top"
           />
+          {/*
+            One number, one rule, at a time.
+            
+            This line used to read `${trimmedNotesLength}/10 min · ${notes.length}/1000`
+            — the left half counting TRIMMED text and the right half counting
+            RAW text, side by side. Two numbers for the same input, moving at
+            different rates, which is what reads as "the counter counts spaces
+            wrong": the driver watches one number they are not gated on race
+            ahead of the one they are.
+            
+            Both rules are individually right and neither changed. The minimum
+            stays trimmed, or ten spaces would satisfy "at least 10 characters
+            so the mechanic knows what to look for". The maximum stays raw,
+            because maxLength caps raw input — a trimmed number would sit at
+            995/1000 while typing had already stopped.
+            
+            What changed is showing them together. Below the minimum the only
+            useful number is how much more is needed; above it, how much room
+            is left.
+          */}
           <Text
             size="xs"
             weight="regular"
@@ -285,7 +330,9 @@ function AreaCard({
           >
             {notesMeetMinimum
               ? `${notes.length}/${MAX_NOTES}`
-              : `${trimmedNotesLength}/${MIN_NOTES} min · ${notes.length}/${MAX_NOTES}`}
+              : `${MIN_NOTES - trimmedNotesLength} more character${
+                  MIN_NOTES - trimmedNotesLength === 1 ? "" : "s"
+                } needed`}
           </Text>
         </View>
       )}

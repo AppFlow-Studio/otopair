@@ -26,6 +26,7 @@ import { Text } from '@/components/shared-ui';
 import { Spacing } from '@/constants/theme';
 import { scale, verticalScale, moderateScale } from '@/utils/responsive';
 import { api } from '@/convex/_generated/api';
+import { isDecodableVin } from '@/convex/lib/vinIdentity';
 import { useVehicleOwnershipFromConvex } from '@/hooks/useVehicleOwnershipFromConvex';
 import { DUPLICATE_GARAGE_VIN_MESSAGE, isVinInGarage } from '@/lib/garageDuplicate';
 
@@ -70,10 +71,20 @@ export default function VinScannerScreen() {
 
     const { data } = result;
 
-    // VINs are 17 characters
-    if (data && data.length === 17) {
-      // Re-adding a car already in the garage would overwrite it (#308).
-      // Stay on the camera so a different VIN can still be scanned.
+    // Two gates, in this order.
+    //
+    // First: a VIN is 17 characters AND carries a check digit in position 9.
+    // The check digit exists precisely to catch a misread character, which is
+    // the failure mode of a camera scan — so a barcode that fails it is a bad
+    // read, and we keep scanning rather than decoding it (#275).
+    //
+    // Then: a good read that names a car already in the garage would overwrite
+    // it (#308). Stay on the camera so a different VIN can still be scanned.
+    //
+    // Order matters. Comparing a misread VIN against the garage would report
+    // "already in your garage" for a car that isn't, or miss one that is.
+    // Establish that the string IS a VIN before asking what it means.
+    if (data && isDecodableVin(data.toUpperCase())) {
       if (isVinInGarage(data, garage)) {
         setDecodeError(DUPLICATE_GARAGE_VIN_MESSAGE);
         return;

@@ -9,12 +9,23 @@
 
 export const DUPLICATE_GARAGE_VIN_MESSAGE = "This car is already in your garage.";
 
+/** The matching garage row, or null. Callers that want to NAME the car —
+ *  "Your 2025 Mercedes-Benz G-Class is already in your garage" reads very
+ *  differently from "This car is already in your garage" — need the row, not
+ *  a boolean. `isVinInGarage` is this with the answer thrown away. */
+export function findVinInGarage<T extends { vin: string }>(
+  vin: string,
+  garage: readonly T[] | null | undefined,
+): T | null {
+  const target = vin.trim().toUpperCase();
+  if (!target || !garage) return null;
+  return garage.find((row) => row.vin.trim().toUpperCase() === target) ?? null;
+}
+
 /** True when `vin` matches a car in the user's active garage. */
 export function isVinInGarage(
   vin: string,
   garage: readonly { vin: string }[] | null | undefined,
 ): boolean {
-  const target = vin.trim().toUpperCase();
-  if (!target || !garage) return false;
-  return garage.some((row) => row.vin.trim().toUpperCase() === target);
+  return findVinInGarage(vin, garage) !== null;
 }

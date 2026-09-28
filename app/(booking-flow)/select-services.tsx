@@ -70,6 +70,7 @@ import { VehiclePuck } from "@/components/booking-flow/VehiclePuck";
 import { TABS, type TaxonomyTab } from "@/constants/serviceTaxonomy";
 import { useBookingStore } from "@/stores/useBookingStore";
 import type { ServiceCategory } from "@/stores/types/store.types";
+import { useCoachAnchor } from "@/components/coach/useCoachAnchor";
 
 /** Map the legacy `initialServiceCategory` signal (set by home cards /
  *  maintenance / recommendation deep-links pre-v5) onto a v5 tab.
@@ -105,6 +106,8 @@ const SHEET_H_FULL = SCREEN_HEIGHT * 0.92;
 const SHEET_H_PEEK = SCREEN_HEIGHT * 0.18;
 
 export default function SelectServicesScreen() {
+  const servicesAnchor = useCoachAnchor("booking.services", 26);
+
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { entry } = useLocalSearchParams<{ entry?: string }>();
@@ -241,6 +244,17 @@ export default function SelectServicesScreen() {
   // the user swipes the carousel. Same pattern choose-mechanic
   // uses for its sheet's internal pager.
   const localMapRef = useRef<MapView | null>(null);
+  /** True only when the driver has actually picked a shop — tapped a pin or
+   *  swiped the carousel. Distinct from `selectedIndex`, which collapses "no
+   *  selection" to 0 so the carousel has a resting position. Conflating the
+   *  two is bug #289: the camera treated "nothing selected" as "shop 0" and
+   *  flew there on open, so the map never showed you where YOU were. */
+  const hasShopSelection = useMemo(
+    () =>
+      selectedShopId != null &&
+      nearbyShops.some((r) => r.shop.id === selectedShopId),
+    [selectedShopId, nearbyShops],
+  );
   const selectedIndex = useMemo(() => {
     if (!selectedShopId) return 0;
     const i = nearbyShops.findIndex((r) => r.shop.id === selectedShopId);
@@ -271,6 +285,11 @@ export default function SelectServicesScreen() {
   // freshly-mounted MapView is silently dropped on iOS.
   useEffect(() => {
     if (isPeekExpanded) return;
+    // No selection → stay on the driver's own location. The camera used to
+    // pan to nearbyShops[0] regardless, which is what "the map shoots over to
+    // the recent shop" was (#289) — it was not the recent shop, it was
+    // whichever shop happened to sort first.
+    if (!hasShopSelection) return;
     const r = nearbyShops[selectedIndex];
     if (!r) return;
     const { latitude, longitude } = r.shop;
@@ -287,7 +306,7 @@ export default function SelectServicesScreen() {
       );
     }, 80);
     return () => clearTimeout(t);
-  }, [isPeekExpanded, selectedIndex, nearbyShops]);
+  }, [isPeekExpanded, selectedIndex, nearbyShops, hasShopSelection]);
   // Peek-mode map zoom + recenter controls. Mirror the pattern
   // choose-mechanic uses — a `zoomDeltaRef` tracks the current
   // zoom span, +/- buttons halve or double it, and the crosshair
@@ -728,8 +747,11 @@ export default function SelectServicesScreen() {
             <HeroCardMostBooked />
           </View>
 
-          {/* Category list */}
-          <View style={styles.list}>
+          {/* Category list. Also the coach anchor for the booking
+              walkthrough's first hint — the sheet itself fills the screen,
+              and a hole that big points at everything and therefore at
+              nothing. */}
+          <View style={styles.list} {...servicesAnchor}>
             {Platform.OS === "ios" ? (
               <BlurView intensity={25} tint="light" style={StyleSheet.absoluteFill} />
             ) : null}

@@ -16,7 +16,7 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { BackHandler, Platform, StyleSheet, View, useWindowDimensions, type DimensionValue } from "react-native";
+import { BackHandler, Platform, StyleSheet, View, useWindowDimensions } from "react-native";
 
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
@@ -452,7 +452,7 @@ export default function BookingConfirmingScreen() {
         style={[
           styles.copyOverlay,
           isCompactLayout && styles.copyOverlayCompact,
-          { top: confirmLayout.copyTopPercent as DimensionValue },
+          { top: confirmLayout.copyTop },
           copyAnimStyle,
         ]}
         pointerEvents="none"

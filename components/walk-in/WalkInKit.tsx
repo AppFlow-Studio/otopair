@@ -26,7 +26,7 @@
  */
 
 // 1. React & React Native
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuth, useUser } from '@clerk/clerk-expo';
 import {
   Image,
@@ -48,8 +48,8 @@ import { Check, ChevronLeft } from 'lucide-react-native';
 
 // 3. Constants
 import { BrandColors, FontFamily, OtoGradient } from '@/constants/theme';
+import { readWalkInIntent, type WalkInAuthIntent } from '@/lib/pendingWalkInClaim';
 import { useWalkInClaimStore } from '@/stores/useWalkInClaimStore';
-import { WALKIN_DEMO_CHOOSER } from '@/constants/devFlags';
 import { formatServiceDisplayName } from '@/utils/serviceDisplayName';
 
 /** The app's mark — same asset the home hero and map pin use. */
@@ -222,21 +222,37 @@ export function useReturningCustomer(): { isReturning: boolean; firstName: strin
   const { isSignedIn } = useAuth();
   const { user } = useUser();
   const claim = useWalkInClaimStore((s) => s.claim);
-  const demoFlow = useWalkInClaimStore((s) => s.demoFlow);
   const fromAccount = user?.firstName?.trim() || null;
   const fromShop = claim?.firstName?.trim() || null;
 
-  // The demo override wins in dev so both branches can be shown from one link
-  // without signing in and out between takes. `demoFlow` can only be set by a
-  // chooser that is itself behind `__DEV__`, so this reads null in production
-  // and the expression collapses to `!!isSignedIn` — the shipped behaviour.
-  const isReturning =
-    WALKIN_DEMO_CHOOSER && demoFlow ? demoFlow === 'existing' : !!isSignedIn;
+  /* Which branch of the walk-in flow to show.
+   *
+   * `isSignedIn` used to decide this, and cannot any more: the claim gate now
+   * requires an account BEFORE the flow starts, so by the time anyone reaches
+   * these screens they are signed in either way. What separates them is which
+   * button they pressed at that gate — create an account, or sign in — and
+   * that is what gets parked alongside the token.
+   *
+   * Falls back to `isSignedIn` when there is no parked intent, which covers a
+   * customer already signed in when they opened the link: they never saw the
+   * gate, and they are by definition returning.
+   */
+  const [intent, setIntent] = useState<WalkInAuthIntent | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void readWalkInIntent().then((v) => {
+      if (!cancelled) setIntent(v);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  const isReturning = intent ? intent === 'existing' : !!isSignedIn;
 
   return {
     isReturning,
-    // A forced "existing" demo may not have a signed-in account behind it, so
-    // the shop's name is the fallback rather than a blank greeting.
+    // A returning customer's own name if we have it, else the name the shop
+    // took at the counter — better than a blank greeting either way.
     firstName: fromAccount ?? fromShop,
   };
 }
@@ -369,8 +385,6 @@ interface WalkInScreenProps {
   headerRight?: React.ReactNode;
   scroll?: boolean;
   contentStyle?: ViewStyle;
-  /** Drop the Skip control. Used by the account gate, which is a hard stop. */
-  hideSkip?: boolean;
 }
 
 export function WalkInScreen({
@@ -381,7 +395,6 @@ export function WalkInScreen({
   headerRight,
   scroll,
   contentStyle,
-  hideSkip,
 }: WalkInScreenProps) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -424,17 +437,6 @@ export function WalkInScreen({
 
         <View style={styles.headerRight}>
           {headerRight}
-          {hideSkip ? null : (
-          <Pressable
-            onPress={() => router.replace('/(main-tabs)/home')}
-            hitSlop={12}
-            accessibilityRole="button"
-            accessibilityLabel="Skip walk-in preview"
-            style={({ pressed }) => [styles.skip, pressed && { opacity: 0.7 }]}
-          >
-            <Text style={styles.skipText}>Skip</Text>
-          </Pressable>
-          )}
         </View>
       </View>
 
@@ -590,13 +592,6 @@ const styles = StyleSheet.create({
     minWidth: 40,
     justifyContent: 'flex-end',
   },
-  skip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 14,
-    backgroundColor: 'rgba(255,255,255,0.72)',
-  },
-  skipText: { fontFamily: FontFamily.semiBold, fontSize: 13.5, color: WI.muted },
   brandRow: { flexDirection: 'row', alignItems: 'center', gap: 7, width: 150 },
   brandMark: { width: 32, height: 32 },
   brandName: { fontFamily: FontFamily.bold, fontSize: 16.5, color: WI.ink },
