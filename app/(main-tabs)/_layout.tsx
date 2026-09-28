@@ -30,8 +30,6 @@ import { getOnboardingFinishedLaterKey } from "@/lib/onboarding-resume";
 import { useConnection } from "@/hooks/useConnection";
 import { useMeFromConvex } from "@/hooks/useMeFromConvex";
 import { SettingsOverlay } from "@/components/settings/SettingsOverlay";
-import { CoachProvider } from "@/components/coach/CoachContext";
-import { CoachTour } from "@/components/coach/CoachTour";
 import { OfflinePreload } from "@/components/connection/OfflinePreload";
 // OTA update banner only matters in EAS builds. In a local dev build
 // expo-updates' native module isn't linked, and the static import chain
@@ -176,7 +174,7 @@ function ProtectedTabLayout() {
   // Use custom tab bar for Android and iOS <= 25.
   if (!isIOS26OrNewer) {
     return (
-      <CoachProvider>
+      <>
         <HydrateBookingData />
         <OfflinePreload />
         <AndroidBlurTarget targetRef={tabsBlurTargetRef}>
@@ -220,13 +218,12 @@ function ProtectedTabLayout() {
         <SettingsOverlay blurTarget={tabsBlurTargetRef} />
         <UpdateAvailableBanner />
         <MainTabsEnrichmentPill />
-        <CoachTour />
-      </CoachProvider>
+      </>
     );
   }
 
   return (
-    <CoachProvider>
+    <>
       <HydrateBookingData />
       <OfflinePreload />
       {/* Same TAB_ITEMS list the custom bar above uses — order, labels and
@@ -249,7 +246,6 @@ function ProtectedTabLayout() {
       <SettingsOverlay />
       <UpdateAvailableBanner />
       <MainTabsEnrichmentPill />
-      <CoachTour />
-    </CoachProvider>
+    </>
   );
 }

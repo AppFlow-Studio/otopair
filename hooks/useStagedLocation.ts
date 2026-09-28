@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Platform } from "react-native";
 import * as Location from "expo-location";
 
@@ -15,6 +15,8 @@ export type LocationStage =
 interface StagedLocationState {
   location: UserLocation | null;
   stage: LocationStage;
+  /** Re-run the permission check + fix. Safe to call repeatedly. */
+  retry: () => void;
   isResolving: boolean;
 }
 
@@ -64,6 +66,13 @@ export function useStagedLocation(): StagedLocationState {
   const [location, setLocation] = useState<UserLocation | null>(null);
   const [stage, setStage] = useState<LocationStage>("loading");
   const [isResolving, setIsResolving] = useState(true);
+  /** Bumped by `retry()` to re-run the resolve. Exists so a caller that has
+   *  sent the driver to Settings can pick up a newly-granted permission
+   *  without them re-entering the whole flow — previously this ran once on
+   *  mount and a refusal was permanent for the life of the screen (#321). */
+  const [retryToken, setRetryToken] = useState(0);
+
+  const retry = useCallback(() => setRetryToken((t) => t + 1), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -134,7 +143,7 @@ export function useStagedLocation(): StagedLocationState {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [retryToken]);
 
-  return { location, stage, isResolving };
+  return { location, stage, isResolving, retry };
 }

@@ -7,6 +7,9 @@ import { EnrichmentStatusPill } from "@/components/booking-flow/EnrichmentStatus
 import { AddVehicleRequiredSheet } from "@/components/home/AddVehicleRequiredSheet";
 import type { FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { BrandColors } from "@/constants/theme";
+import { useMechanicsFromConvex } from "@/hooks/useMechanicsFromConvex";
+import { useServicesFromConvex } from "@/hooks/useServicesFromConvex";
+import { useShopsFromConvex } from "@/hooks/useShopsFromConvex";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
@@ -28,6 +31,24 @@ import { useVehicleStore } from "@/stores/useVehicleStore";
  * (no map) just paints its own opaque background over it.
  */
 export default function BookingFlowLayout() {
+  /**
+   * Hydrate the service catalog for this group.
+   *
+   * `availableServices` was only ever filled by home/_layout and
+   * booking/_layout, so the flow relied on having passed through one of them
+   * first. Reached any other way — a deep link, or a return after the store
+   * was cleared — every category read "0 services" over a catalog that had
+   * simply never loaded. The hook is a query plus an effect, so a second
+   * caller is free.
+   */
+  useServicesFromConvex();
+  // Same story for shops and mechanics: home/_layout and booking/_layout
+  // hydrated them, this group did not, so Choose Mechanic sat on "Finding
+  // shops near you…" forever whenever the flow was reached without passing
+  // through one of those first.
+  useShopsFromConvex();
+  useMechanicsFromConvex();
+
   const { hasVehicles, isLoading } = useVehicleOwnershipFromConvex();
 
   // Cart-vehicle guard. The cart (`selectedServiceIds`) is snapshotted to
@@ -64,14 +85,20 @@ export default function BookingFlowLayout() {
       <Stack
         screenOptions={{
           headerShown: false,
-          // Calm cross-fade over the shared static map. A horizontal
-          // slide fought the Screen 1→2 shared-element morph (the
-          // category icon/title lifting into the header) by dragging
-          // the morphing element along the slide path; a fade lets the
-          // morph be the only motion, so the flow reads as content
-          // swapping in place rather than screens shoving each other.
-          animation: "fade",
-          animationDuration: 320,
+          // No transition between screens.
+          //
+          // Every screen here is `contentStyle: transparent` so it can
+          // sit over the shared map. That makes a cross-fade reveal the
+          // whole stack at once rather than blending two screens: at 50%
+          // opacity the frosted sheets stop hiding anything and the map,
+          // the outgoing screen and the search screen all show through
+          // together. It reads as text sliding around behind glass.
+          //
+          // Screens 1 and 2 are the same sheet — bottom-anchored, 92%
+          // tall, same corner radius — so with no animation the frame
+          // simply stays put and its contents change, which is what a
+          // drill-down inside one sheet should look like.
+          animation: "none",
           gestureEnabled: true,
           gestureDirection: "horizontal",
           contentStyle: { backgroundColor: "transparent" },

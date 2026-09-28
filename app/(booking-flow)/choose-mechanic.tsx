@@ -30,6 +30,7 @@ import type { FunctionReference } from "convex/server";
 // composes with the shop pager on Android (see the android-gestures
 // source test).
 import { ScrollView } from "react-native-gesture-handler";
+import { MapSwipeHint } from "@/components/booking-flow/MapSwipeHint";
 import { useFocusEffect } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -77,6 +78,7 @@ import { useBookingStore } from "@/stores/useBookingStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { buildShopPriceLabel } from "@/lib/shopPriceLabel";
 import { weekdayLongFromISO } from "@/utils/timeSlotUtils";
+import { useCoachAnchor } from "@/components/coach/useCoachAnchor";
 
 const SCREEN_WIDTH = Dimensions.get("window").width;
 const SCREEN_HEIGHT = Dimensions.get("window").height;
@@ -140,6 +142,8 @@ function formatBookingDate(iso: string): string {
 }
 
 export default function ChooseMechanicScreen() {
+  const shopsAnchor = useCoachAnchor("booking.shops", 22);
+
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
@@ -313,14 +317,23 @@ export default function ChooseMechanicScreen() {
   // Per-(shop, service, tier) flat-price overrides for the active shop.
   // When a service is offered at a fixed rate the price renders as a
   // single guaranteed `$N` instead of an estimate range.
-  const { map: activeFixedMap } = useShopFixedPricesForServices(
-    activeShop?.id ?? null,
-    ownershipId ?? null,
-    selectedServiceIds,
-  );
+  const { map: activeFixedMap, isLoading: activeFixedLoading } =
+    useShopFixedPricesForServices(
+      activeShop?.id ?? null,
+      ownershipId ?? null,
+      selectedServiceIds,
+    );
+  // While this shop's fixed-price overrides are still in flight, render no
+  // price rather than a confident wrong one. `activeShop` flips the instant
+  // the map selection changes, but `activeFixedMap` is still the PREVIOUS
+  // shop's until the query resolves — so the card used to show a price
+  // computed from the new shop against the old shop's overrides, then jump
+  // when the real data landed. That jump is bug #301. MapShopCard's own prop
+  // doc already specifies `null while loading`; the screen just never passed
+  // it.
   const activePriceLabel = useMemo(
     () =>
-      activeShop
+      activeShop && !activeFixedLoading
         ? buildShopPriceLabel({
             shop: activeShop,
             selectedServices: selectedServicesForPricing,
@@ -329,7 +342,14 @@ export default function ChooseMechanicScreen() {
             laborOnlyCandidateIds,
           })
         : { text: null, isFixed: false, isLaborOnly: false },
-    [activeShop, selectedServicesForPricing, laborHoursMap, activeFixedMap, laborOnlyCandidateIds],
+    [
+      activeShop,
+      activeFixedLoading,
+      selectedServicesForPricing,
+      laborHoursMap,
+      activeFixedMap,
+      laborOnlyCandidateIds,
+    ],
   );
 
   // Per-shop mechanic selection — null = Any. Reset when the active
@@ -879,6 +899,25 @@ export default function ChooseMechanicScreen() {
                 }
               : region
           }
+          // Tap the map to put the shop panel away.
+          //
+          // Two testers reported the same thing on the same afternoon (#242,
+          // #250): they wanted to see the map and could not get the shop card
+          // and sheet out of the way. Swiping the sheet down has always done
+          // it and now says so, but the floating card carries no close control
+          // of its own, and tapping the thing you want to look at is how every
+          // maps app dismisses a card. Reversible — a pin or browse-card tap
+          // brings the sheet straight back.
+          //
+          // react-native-maps fires this for MARKER taps as well, tagged
+          // `action: "marker-press"`. Verified on device: without the guard,
+          // tapping a rating pin selected the shop AND dismissed the sheet, so
+          // choosing a shop from the map threw away the panel describing it.
+          // Only a press on the map itself should put the panel away.
+          onPress={(e) => {
+            if (e?.nativeEvent?.action === "marker-press") return;
+            if (!isSheetHidden) bottomSheetRef.current?.close();
+          }}
           showsUserLocation
           scrollEnabled
           zoomEnabled
@@ -1039,7 +1078,18 @@ export default function ChooseMechanicScreen() {
       >
         <BottomSheetView
           style={[styles.sheetContent, { paddingBottom: SHEET_FOOTER_HEIGHT }]}
+          {...shopsAnchor}
         >
+          {/* The sheet has always been swipe-down-able — `enablePanDownToClose`
+              above — but nothing said so. Screen 1 carries this same hint and
+              testers found the map there; here they panned the map, saw the
+              shop card and the sheet stay put, and reported that the details
+              could not be dismissed. The capability was not missing, the
+              affordance was. */}
+          {nearbyShops.length > 0 ? (
+            <MapSwipeHint label="Swipe down to browse shops" />
+          ) : null}
+
           {nearbyShops.length === 0 ? (
             <View style={styles.empty}>
               <Text size="md" weight="medium" color="#9CA3AF" center>

@@ -281,7 +281,15 @@ export default function TireBookingScreen({ onClose, onConfirmed }: TireBookingS
     setIsSubmitting(true);
     haptics.cta();
     requestAnimationFrame(() => {
-      void fireRequest();
+      // Quote generation runs detached so the requesting screen can mount
+      // immediately. A rejection here used to vanish, leaving the driver on a
+      // confirm countdown for a request whose quotes had already failed to
+      // generate — another silent dead end in this flow (cf. #231, #240).
+      fireRequest().catch((err: unknown) => {
+        if (__DEV__) {
+          console.warn("[tire] fireRequest failed", err);
+        }
+      });
       if (onClose) {
         // Modal mode — render requesting inline. Reset spinner so it
         // doesn't visually hang on the now-hidden config screen.

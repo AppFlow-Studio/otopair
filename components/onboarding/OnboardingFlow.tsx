@@ -19,7 +19,7 @@
  *   />
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { BackHandler, StyleSheet, View, Keyboard } from 'react-native';
 import { guardedRouter as router } from '@/lib/navigationLock';
 import {
@@ -283,20 +283,37 @@ export function OnboardingFlow({
     // Dismiss keyboard when transitioning
     Keyboard.dismiss();
 
-    // Set up transition
+    // Set up transition. The gradient animation is NOT started here — see
+    // the effect below. `animationProgress` is a shared value and assigning
+    // to it lands on the UI thread immediately, while `fromStep`/`toStep` are
+    // React state that only reach AnimatedGradientBackground on the next
+    // commit. Resetting progress to 0 here meant one frame of the new
+    // progress running against the OLD index pair, so the gradient jumped to
+    // the previous transition's start colour and then jumped again when the
+    // props caught up. That double-jump is the "color fade" stutter (#305).
     setFromStep(currentStep);
     setToStep(nextStep);
+    setCurrentStep(nextStep);
+  };
 
-    // Reset and animate
+  // Start the gradient only once the new from/to indices have committed, so
+  // progress and the colours it interpolates between always belong to the
+  // same transition.
+  const gradientPrimed = useRef(false);
+  useEffect(() => {
+    if (!gradientPrimed.current) {
+      // Mount: fromStep === toStep and progress is already 1. Animating here
+      // would be a no-op between two identical colours, but skipping it keeps
+      // the first paint honest.
+      gradientPrimed.current = true;
+      return;
+    }
     animationProgress.value = 0;
     animationProgress.value = withTiming(1, {
       duration: 1200,
       easing: Easing.bezier(0.25, 0.1, 0.25, 1),
     });
-
-    // Update current step
-    setCurrentStep(nextStep);
-  };
+  }, [fromStep, toStep, animationProgress]);
 
   // Helper function to determine previous step after locationServices based on notification permissions
   const getPreviousStepAfterLocationServices = async (): Promise<OnboardingStep> => {

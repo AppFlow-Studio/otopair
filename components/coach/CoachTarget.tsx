@@ -30,11 +30,28 @@ interface CoachTargetProps {
    * real layout, which a margin here would.
    */
   insetX?: number;
+  /**
+   * Trim the reported rect vertically, in points.
+   *
+   * List rows carry their own bottom margin — the gap to the next row is part
+   * of the measured view, not of the card you can see — so a hole drawn round
+   * one row hangs 12pt into the gap below it. Same idea as insetX, per edge.
+   */
+  insetTop?: number;
+  insetBottom?: number;
   style?: StyleProp<ViewStyle>;
   children: React.ReactNode;
 }
 
-export function CoachTarget({ id, radius = 16, insetX = 0, style, children }: CoachTargetProps) {
+export function CoachTarget({
+  id,
+  radius = 16,
+  insetX = 0,
+  insetTop = 0,
+  insetBottom = 0,
+  style,
+  children,
+}: CoachTargetProps) {
   const reg = useCoachRegistry();
   const instance = useCoachInstanceId();
   const ref = useRef<View | null>(null);
@@ -51,13 +68,13 @@ export function CoachTarget({ id, radius = 16, insetX = 0, style, children }: Co
       if (!width || !height) return;
       regRef.current?.report(id, instance, {
         x: x + insetX,
-        y,
+        y: y + insetTop,
         width: Math.max(0, width - insetX * 2),
-        height,
+        height: Math.max(0, height - insetTop - insetBottom),
         radius,
       });
     });
-  }, [id, radius, insetX, instance]);
+  }, [id, radius, insetX, insetTop, insetBottom, instance]);
 
   // Unregister on unmount so a stale rect from a tab we have left cannot be
   // spotlit — that would cut a hole over whatever now occupies those pixels.

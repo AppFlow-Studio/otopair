@@ -39,7 +39,10 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
+import {
+  KeyboardToolbar,
+  useReanimatedKeyboardAnimation,
+} from "react-native-keyboard-controller";
 
 // ============================================================================
 // CONSTANTS (mirrors BookingDetailsSheet so the whole app feels consistent)
@@ -97,8 +100,18 @@ interface FloatingSheetProps {
    *  Still flattens to 0 near the full snap, same as cornerRadius. */
   bottomCornerRadius?: number;
   /** When true, the sheet rises by the keyboard height so an input near the
-   *  bottom stays visible. Default false (no change for input-less sheets). */
+   *  bottom stays visible — clamped so the sheet's top never leaves the
+   *  screen. Default false (no change for input-less sheets). */
   liftWithKeyboard?: boolean;
+  /** When true, pin a one-tap "Done" bar above the keyboard.
+   *
+   *  A MULTILINE TextInput has no return key that dismisses — Return inserts a
+   *  newline — so without this bar and without a scroll view to swipe, a sheet
+   *  whose only input is multiline has no way to put the keyboard away at all.
+   *  Rendered as a sibling of the sheet inside the Modal: nested in the
+   *  animated sheet it would be clipped and would ride the lift.
+   *  Default false, so no existing sheet changes. */
+  keyboardToolbar?: boolean;
   /** Override the bottom inset at the smallest detent (multi-snap mode).
    *  Defaults to 12pt. Pass `insets.bottom + N` if the sheet should clearly
    *  float above the home indicator. Ignored in single-snap mode. */
@@ -143,6 +156,7 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
       cornerRadius = CORNER_RADIUS,
       bottomCornerRadius,
       liftWithKeyboard = false,
+      keyboardToolbar = false,
       floatBottomInset,
       sideInset: sideInsetOverride,
       renderInModal = true,
@@ -307,13 +321,36 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
     // Callers can pass `floatBottomInset` to sit the sheet lower/higher.
     const singleSnapBottomInset = floatBottomInset ?? FLOAT_BOTTOM;
 
+    // Keyboard lift, clamped so the sheet's TOP can never leave the screen.
+    //
+    // `bottom += keyboardHeight` on a tall sheet pushes its top off the top of
+    // the display: a ~648pt sheet + a ~340pt keyboard needs ~1000pt of room,
+    // and an iPhone has ~844. Everything above the fold — the step bar, the
+    // Back control, the sheet's own grabber — becomes unreachable, which is
+    // bug #341: with no way out and no way back, force-quitting the app was
+    // the only exit and it took the half-written review with it.
+    //
+    // Lifting less than the full keyboard height is the correct trade: the
+    // focused input is near the sheet's bottom, so it still clears the
+    // keyboard, and the navigation at the top stays on screen.
+    const topGuard = insets.top + 8;
+    const liftFor = (height: number, bottomInset: number) => {
+      "worklet";
+      if (!liftWithKeyboard) return 0;
+      const wanted = Math.abs(keyboardHeight.value);
+      const room = SCREEN_HEIGHT - topGuard - height - bottomInset;
+      return Math.max(0, Math.min(wanted, room));
+    };
+
     const sheetAnimStyle = useAnimatedStyle(() => {
       if (isSingleSnap) {
         const singleSide = sideInsetOverride ?? SIDE_INSET_MAX;
         return {
           left: singleSide,
           right: singleSide,
-          bottom: singleSnapBottomInset + (liftWithKeyboard ? Math.abs(keyboardHeight.value) : 0),
+          bottom:
+            singleSnapBottomInset +
+            liftFor(sheetHeight.value, singleSnapBottomInset),
           height: sheetHeight.value,
           transform: [{ translateY: translateY.value }],
           borderBottomLeftRadius: resolvedBottomRadius,
@@ -343,7 +380,7 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
       return {
         left: sideInset,
         right: sideInset,
-        bottom: bottomInset + (liftWithKeyboard ? Math.abs(keyboardHeight.value) : 0),
+        bottom: bottomInset + liftFor(sheetHeight.value, bottomInset),
         height: sheetHeight.value,
         transform: [{ translateY: translateY.value }],
         borderBottomLeftRadius: bottomRadius,
@@ -452,6 +489,11 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
             <View style={styles.content}>{children}</View>
           </Animated.View>
         </Animated.View>
+
+        {/* Pinned above the keyboard, outside the animated sheet so it is
+            neither clipped by it nor lifted with it. Arrows are hidden — the
+            sheets that opt in have a single focusable field per step. */}
+        {keyboardToolbar ? <KeyboardToolbar showArrows={false} /> : null}
       </View>
     );
 
