@@ -12,6 +12,7 @@ import { useQuery } from "convex/react";
 import { useMemo } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useShopStore } from "@/stores/useShopStore";
 import type { MechanicAvailabilitySlot } from "@/stores/types/store.types";
 import {
   dateToDayDisplay,
@@ -48,7 +49,12 @@ export function useNextAvailabilityForShop(
   limit: number = DEFAULT_LIMIT,
   durationMinutes?: number,
   minimumSlot?: DateTimeFloor,
+  timezone?: string,
 ) {
+  const storedTimezone = useShopStore((state) =>
+    shopId ? state.shops[shopId]?.timezone : undefined,
+  );
+  const shopTimezone = storedTimezone ?? timezone;
   // Skip query for mock shop IDs (e.g. "1", "2") — only call Convex with real IDs
   const isConvexId = shopId != null && shopId.length > 10;
 
@@ -57,7 +63,7 @@ export function useNextAvailabilityForShop(
   // slots) and the client safety-net filter below. The server runs in
   // UTC and would otherwise mis-classify "today" near midnight.
   const cutoff = getPickerFloor(
-    { date: todayLocalISO(), time: minBookableHHMM() },
+    { date: todayLocalISO(shopTimezone), time: minBookableHHMM(shopTimezone) },
     minimumSlot ?? null,
   );
   const { date: cutoffDate, time: cutoffTime } = cutoff;

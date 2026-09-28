@@ -55,6 +55,7 @@ import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { resolveBookingVehicleVin } from "@/utils/bookingVehicle";
+import { shopTimezoneAbbreviation } from "@/lib/shopTimezone";
 import {
   displayTimeToHHMM,
   findFirstAvailableDate,
@@ -190,6 +191,7 @@ export default function PickDateTimeScreen() {
   // store reads (above) but not this, and it is still read further down.
   const conn = useConnection();
   const shop = shopId ? getShopById(shopId) ?? null : null;
+  const shopTimezone = shop?.timezone;
   const mechanic = selectedMechanicId ? getMechanicById(selectedMechanicId) ?? null : null;
 
   // Engine-adjusted + director-rounded labor (empirical → book →
@@ -223,12 +225,15 @@ export default function PickDateTimeScreen() {
   // Quote scheduling starts no earlier than the shop's quoted date/time.
   // Normal bookings use only today's booking-notice floor.
   const floor = useMemo(() => {
-    const todayFloor = { date: todayLocalISO(), time: minBookableHHMM() };
+    const todayFloor = { date: todayLocalISO(shopTimezone), time: minBookableHHMM(shopTimezone) };
     const quoteFloor = quoteAcceptContext
       ? { date: quoteAcceptContext.minDate, time: quoteAcceptContext.minTime }
       : null;
     return getPickerFloor(todayFloor, quoteFloor);
-  }, [quoteAcceptContext]);
+  }, [quoteAcceptContext, shopTimezone]);
+  const timezoneLabel = shopTimezone
+    ? shopTimezoneAbbreviation(floor.date, floor.time, shopTimezone)
+    : null;
 
   // The mechanic labels use the same duration and minimum slot as the date
   // and time picker, so they cannot advertise availability before this quote.
@@ -239,12 +244,14 @@ export default function PickDateTimeScreen() {
     1,
     availabilityDurationMinutes,
     floor,
+    shopTimezone,
   );
   const { slotsByMechanicId } = useNextAvailabilityPerMechanicForShop(
     shopId,
     undefined,
     availabilityDurationMinutes,
     floor,
+    shopTimezone,
   );
   const allMechanicsMap = useMechanicStore((s) => s.mechanics);
   const mechanicCarouselItems = useMemo(
@@ -279,8 +286,7 @@ export default function PickDateTimeScreen() {
   // today and render DATE_RANGE_DAYS forward (no past days). For a
   // chosen future month we render every day of that month from the 1st.
   const dateChipItems = useMemo<DateChipItem[]>(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = isoToDate(todayLocalISO(shopTimezone));
 
     const isCurrentMonth =
       !viewMonth ||
@@ -310,10 +316,10 @@ export default function PickDateTimeScreen() {
       });
     }
     return items;
-  }, [viewMonth]);
+  }, [viewMonth, shopTimezone]);
 
   // The first date chip we'd LIKE to anchor on — used for the calendar query.
-  const anchorDate = dateChipItems[0]?.isoDate ?? toIsoDate(new Date());
+  const anchorDate = dateChipItems[0]?.isoDate ?? todayLocalISO(shopTimezone);
   const anchorMonth = parseInt(anchorDate.slice(5, 7), 10);
   const anchorYear = parseInt(anchorDate.slice(0, 4), 10);
   const {
@@ -326,6 +332,7 @@ export default function PickDateTimeScreen() {
     selectedMechanicId,
     totalMinutes > 0 ? totalMinutes : undefined,
     quoteHoldContext,
+    shopTimezone,
   );
 
   const endDate = dateChipItems[dateChipItems.length - 1]?.isoDate ?? anchorDate;
@@ -342,6 +349,7 @@ export default function PickDateTimeScreen() {
     selectedMechanicId,
     totalMinutes > 0 ? totalMinutes : undefined,
     quoteHoldContext,
+    shopTimezone,
   );
   const availableDates = useMemo(
     () =>
@@ -394,6 +402,7 @@ export default function PickDateTimeScreen() {
     // today's 1-hour notice window (floor.time is the quoted time here — see
     // getPickerFloor). Manual scheduling keeps the hook's default lead time.
     autoConfirmPending ? floor.time : undefined,
+    shopTimezone,
   );
   const slots = useMemo(() => {
     // On the floor date, hide any slot earlier than the floor time (today's
@@ -787,6 +796,11 @@ export default function PickDateTimeScreen() {
           >
             {MIN_ADVANCE_NOTICE_LABEL}
           </Text>
+          {timezoneLabel ? (
+            <Text size="xs" weight="regular" color="#6B7280" style={styles.timesNote}>
+              Times shown in the shop&apos;s timezone ({timezoneLabel}).
+            </Text>
+          ) : null}
           {/* Key on the selected day so swapping dates remounts the
               grid — that re-triggers the FadeInUp cascade so the new
               day's slots animate in like MaintenanceTracker does

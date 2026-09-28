@@ -19,6 +19,7 @@ import {
 import { useSessionCachedQuery } from "@/lib/offlineSessionCache";
 import { useUserFromConvex } from "./useUserFromConvex";
 import { getQuoteTileState } from "@/utils/quoteAvailability";
+import { shopTodayISO } from "@/lib/shopTimezone";
 
 // Approval cycles that mean the customer still owes a decision (or the
 // mechanic is mid-cycle awaiting one). A booking in any of these states
@@ -70,8 +71,7 @@ function isUpcoming(row: ConvexBookingWithDetails, nowMs: number): boolean {
   // (which returns UTC) drops same-day bookings whenever local time
   // has rolled into the next UTC day (evenings west of UTC). Sister
   // of the same fix in app/(main-tabs)/home/index.tsx.
-  const now = new Date();
-  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  const today = shopTodayISO(row.shopTimezone);
   return row.scheduled_date >= today;
 }
 
