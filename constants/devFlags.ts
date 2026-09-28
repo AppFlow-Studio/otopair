@@ -39,7 +39,18 @@ export const FORCE_TUTORIAL_EVERY_LAUNCH = __DEV__ && false;
  * same reason as the flag above: an account used for testing should not end
  * up marked as having seen a tour it is about to be shown again.
  */
-export const FORCE_COACH_MARKS_EVERY_LAUNCH = __DEV__ && false;
+export const FORCE_COACH_MARKS_EVERY_LAUNCH = __DEV__ && true;
+
+/**
+ * Always open on Home, ignoring the route a reload restored.
+ *
+ * Expo Router keeps the current URL across a dev reload, so reloading while
+ * three screens deep into the booking flow drops you back in three screens
+ * deep — with whatever half-state that screen expects already gone. A cold
+ * start in production always lands on Home, so this is dev catching up with
+ * how the app actually behaves for a driver, not a behaviour change.
+ */
+export const START_AT_HOME_ON_RELOAD = __DEV__ && true;
 
 /**
  * Start the spotlight tour on a given step instead of the first one.
@@ -51,13 +62,3 @@ export const FORCE_COACH_MARKS_EVERY_LAUNCH = __DEV__ && false;
  * 0 is the real behaviour. Leave it there.
  */
 export const COACH_START_STEP = __DEV__ ? 0 : 0;
-
-/**
- * Show the walk-in claim flow's "new vs existing customer" chooser.
- *
- * Built so both branches could be demoed from one link without signing in and
- * out between takes. It is not a real screen: a tester who taps through it is
- * choosing a branch the app would otherwise pick from their auth state, and
- * whatever they report about that flow is then about a state they selected.
- */
-export const WALKIN_DEMO_CHOOSER = __DEV__ && false;

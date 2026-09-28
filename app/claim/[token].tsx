@@ -36,9 +36,9 @@ import { useAuth } from '@clerk/clerk-expo';
 
 import { api } from '@/convex/_generated/api';
 import { useWalkInClaimStore, type WalkInTracker } from '@/stores/useWalkInClaimStore';
+import { parkClaimToken } from '@/lib/pendingWalkInClaim';
 import { GhostButton, PrimaryCta, WalkInScreen, WI } from '@/components/walk-in/WalkInKit';
 import { FontFamily } from '@/constants/theme';
-import { WALKIN_DEMO_CHOOSER } from '@/constants/devFlags';
 
 type ClaimResult =
   | null
@@ -64,16 +64,7 @@ export default function ClaimTokenScreen() {
   const setClaim = useWalkInClaimStore((s) => s.setClaim);
   const setVin = useWalkInClaimStore((s) => s.setVin);
   const setTracker = useWalkInClaimStore((s) => s.setTracker);
-  const demoFlow = useWalkInClaimStore((s) => s.demoFlow);
-  const setDemoFlow = useWalkInClaimStore((s) => s.setDemoFlow);
 
-  // DEV ONLY. Both branches of the walk-in flow start from the same link, and
-  // which one you get depends on whether you happen to be signed in — which
-  // makes them awkward to demo back to back. This lets the presenter pick.
-  // `__DEV__` is compiled out of release builds, so a real customer never sees
-  // it and `treatAsReturning` collapses to `isSignedIn`.
-  const showDemoChooser = WALKIN_DEMO_CHOOSER && demoFlow === null;
-  const treatAsReturning = WALKIN_DEMO_CHOOSER && demoFlow ? demoFlow === 'existing' : !!isSignedIn;
 
   // `undefined` = still loading; anything else is a resolved result.
   const result = useQuery(
@@ -98,23 +89,8 @@ export default function ClaimTokenScreen() {
     if (tracker) setTracker(tracker);
   }, [tracker, setTracker]);
 
-  // Opening a link starts a fresh demo choice. Without this the chooser
-  // answers itself on the second run of the session, which is exactly when a
-  // presenter wants to show the OTHER flow. Keyed on the token so picking an
-  // option — which does not change the token — is not undone a frame later.
-  const demoResetForToken = useRef<string | null>(null);
-  useEffect(() => {
-    if (!__DEV__ || !token) return;
-    if (demoResetForToken.current === token) return;
-    demoResetForToken.current = token;
-    setDemoFlow(null);
-  }, [token, setDemoFlow]);
-
   useEffect(() => {
     if (!token || !isClaimable || !result) return;
-    // In dev the chooser below decides which flow to demo, so hold here until
-    // it has been answered. In production `showDemoChooser` is always false.
-    if (showDemoChooser) return;
     setClaim(token, result as Exclude<ClaimResult, null | { expired: true } | { alreadyClaimed: true }>);
 
     // Signed in already? Merge the job onto this account before going anywhere.
@@ -131,9 +107,11 @@ export default function ClaimTokenScreen() {
     // Routing does not wait on the result. The merge is idempotent and the
     // Cars tab is a live Convex subscription, so the car appears the moment it
     // lands, whether or not this screen is still mounted.
-    // `treatAsReturning` is `isSignedIn` in production. In dev the chooser can
-    // override it so both flows are reachable from one link.
-    if (treatAsReturning) {
+    // AUTH FIRST (Ahmad, 2026-09-27). A walk-in job is now shown only to a
+    // signed-in account: creating one takes you down the new-customer branch,
+    // signing in takes you down the returning one, and the app never has to
+    // guess which you are. The gate screen below does the asking.
+    if (isSignedIn) {
       // Keep the VIN the merge confirms: "Go to my Garage" downstream opens
       // ON this car rather than on whichever one is primary.
       void claimByToken({ token })
@@ -146,25 +124,12 @@ export default function ClaimTokenScreen() {
       router.replace('/(walk-in)/tracker');
       return;
     }
-    router.replace('/(walk-in)');
-  }, [token, isClaimable, result, setClaim, setVin, router, treatAsReturning, showDemoChooser, claimByToken]);
+    // Signed out — hold here and render the gate rather than routing into the
+    // flow. Park the token first: OAuth can cold-start the app on the way back
+    // and the in-memory store would not survive it.
 
-  if (showDemoChooser && isClaimable) {
-    return (
-      <WalkInScreen>
-        <View style={styles.center}>
-          <Text style={styles.demoLabel}>DEMO — pick a flow</Text>
-          <Text style={styles.demoHint}>
-            Both start from this same link. Dev builds only.
-          </Text>
-          <View style={styles.demoCtas}>
-            <PrimaryCta label="New user" onPress={() => setDemoFlow('new')} />
-            <GhostButton label="Existing user" onPress={() => setDemoFlow('existing')} />
-          </View>
-        </View>
-      </WalkInScreen>
-    );
-  }
+  }, [token, isClaimable, result, setClaim, setVin, router, isSignedIn, claimByToken]);
+
 
   if (result === undefined) {
     return (
@@ -172,6 +137,55 @@ export default function ClaimTokenScreen() {
         <View style={styles.center}>
           <ActivityIndicator color={WI.accent} />
           <Text style={styles.loading}>Opening your job…</Text>
+        </View>
+      </WalkInScreen>
+    );
+  }
+
+  /* THE GATE. A valid link, and nobody signed in.
+   *
+   * Signing in or creating an account is what decides which branch of the
+   * walk-in flow they get, so it has to happen before the flow starts — a new
+   * account goes down the new-customer path, an existing one down the
+   * returning path, and nothing has to be inferred.
+   *
+   * It still shows WHAT they are signing in for. "Sign in to continue" with no
+   * context is a wall; naming their car and the shop is the shop's handoff
+   * arriving intact, and it is the thing that makes the ask reasonable. */
+  if (isClaimable && !isSignedIn) {
+    const r = result as Exclude<ClaimResult, null | { expired: true }>;
+    const car = r.vehicleSummary?.trim();
+    const shop = r.shopName?.trim();
+    return (
+      <WalkInScreen>
+        <View style={styles.problem}>
+          <Text style={styles.headline}>
+            {car ? `Your ${car} is at the shop` : 'Your car is at the shop'}
+          </Text>
+          <Text style={styles.body}>
+            {shop
+              ? `Sign in or create an account to track this appointment at ${shop} — and keep the car, its history and every visit in one place.`
+              : 'Sign in or create an account to track this appointment — and keep the car, its history and every visit in one place.'}
+          </Text>
+        </View>
+        <View style={styles.footer}>
+          {/* The choice here IS the branch. Parked with the token because
+              everyone comes back signed in, so nothing downstream could
+              otherwise tell a fresh account from one that already existed. */}
+          <PrimaryCta
+            label="Create an account"
+            onPress={() => {
+              void parkClaimToken(token, 'new');
+              router.replace('/(onboarding)');
+            }}
+          />
+          <GhostButton
+            label="Already have one? Sign in"
+            onPress={() => {
+              void parkClaimToken(token, 'existing');
+              router.replace('/(onboarding)');
+            }}
+          />
         </View>
       </WalkInScreen>
     );
@@ -233,20 +247,4 @@ const styles = StyleSheet.create({
     marginTop: 10,
   },
   footer: { paddingBottom: 34 },
-
-  // DEV-only chooser. Deliberately plain — it is scaffolding for a demo, not
-  // a screen anyone should mistake for product.
-  demoLabel: {
-    fontFamily: FontFamily.bold,
-    fontSize: 12,
-    letterSpacing: 1.2,
-    color: WI.accent,
-  },
-  demoHint: {
-    fontFamily: FontFamily.regular,
-    fontSize: 13.5,
-    color: WI.muted,
-    textAlign: 'center',
-  },
-  demoCtas: { alignSelf: 'stretch', gap: 10, marginTop: 8 },
 });

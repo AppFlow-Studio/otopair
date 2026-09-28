@@ -833,7 +833,11 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: Spacing.xl,
-    paddingBottom: Spacing.xl,
+    // The footer is a real sibling, not an overlay, so it cannot cover
+    // anything — but it carries a top border and a shadow, and 20pt left the
+    // last calendar row sitting right against it. Content that ends flush
+    // under a bordered bar reads as cut off, which is what #255 describes.
+    paddingBottom: Spacing.xl * 2,
   },
 
   // Mechanic Selector
@@ -1004,6 +1008,10 @@ const styles = StyleSheet.create({
   timeSlotsContent: {
     gap: Spacing.md,
     paddingVertical: Spacing.xs,
+    // The row is horizontally scrollable and the outer ScrollView already
+    // insets it, so without this the last slot ends flush against the screen
+    // edge and reads as clipped rather than scrollable.
+    paddingRight: Spacing.xl,
   },
   timeSlot: {
     paddingHorizontal: Spacing.xl,

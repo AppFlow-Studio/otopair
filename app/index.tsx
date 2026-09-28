@@ -12,17 +12,19 @@
  */
 
 import { useEffect, useRef } from "react";
-import { View, ActivityIndicator, StyleSheet } from "react-native";
+import { View, StyleSheet } from "react-native";
 import { useRootNavigationState, useSegments } from "expo-router";
 import { guardedRouter as router } from "@/lib/navigationLock";
 import { useAuth } from "@clerk/clerk-expo";
 import { useConvexAuth, useQuery } from "convex/react";
 import * as SecureStore from "expo-secure-store";
+import * as SplashScreen from "expo-splash-screen";
 import { api } from "@/convex/_generated/api";
 import { BrandColors } from "@/constants/theme";
 import { shouldResumeMidSetup, shouldRunStartupRedirect } from "@/lib/auth-routing";
 import { getOnboardingFinishedLaterKey, hasOnboardingInProgress } from "@/lib/onboarding-resume";
 import { useConnection } from "@/hooks/useConnection";
+import { takeParkedClaimToken } from "@/lib/pendingWalkInClaim";
 
 export default function Index() {
   const { isSignedIn, isLoaded, userId: clerkUserId } = useAuth();
@@ -144,6 +146,34 @@ export default function Index() {
         }
       };
 
+      /* WALK-IN RESUME — before any of the onboarding routing below.
+       *
+       * The walk-in claim gate sends a signed-out customer to auth and parks
+       * their token. They are coming back for one specific reason: the job the
+       * shop handed them a link for. Sending them to Home first and expecting
+       * them to find it would waste the handoff the whole flow exists to
+       * protect.
+       *
+       * Routing back through /claim/[token] rather than claiming here: that
+       * screen already owns the signed-in path — it calls `claimByToken` and
+       * lands on the tracker. One place that knows how to claim, not two.
+       *
+       * This also closes a real hole. A brand-new signup adopts the stub
+       * inside `users.getOrCreateMe`, but an EXISTING account is found by
+       * clerkUserId and returns long before that adoption code — so signing in
+       * used to leave the car on the shop's stub. Coming back through the
+       * claim screen runs `claimByToken` for both.
+       */
+      const parkedClaim = await takeParkedClaimToken();
+      if (parkedClaim) {
+        if (hasNavigated.current) return;
+        console.log("[walk-in] resuming parked claim after auth");
+        if (safeReplace({ pathname: "/claim/[token]", params: { token: parkedClaim } } as never)) {
+          hasNavigated.current = true;
+        }
+        return;
+      }
+
       // Onboarding fully complete → home
       if (me?.onboardingCompleted === true) {
         console.log("[onboarding-resume:index] navigating home: onboarding completed", {
@@ -222,11 +252,28 @@ export default function Index() {
     })();
   }, [clerkUserId, conn, isLoaded, isSignedIn, me, rawMe, rootNavigationReady, alreadyInApp]);
 
-  return (
-    <View style={styles.loading}>
-      <ActivityIndicator size="large" color={BrandColors.white} />
-    </View>
-  );
+  /**
+   * Hold the splash until this screen goes away.
+   *
+   * The splash used to lift as soon as fonts and Clerk were ready, but routing
+   * also waits on the Convex user record — so for that gap the driver got a
+   * third screen between the splash and Home: dark navy with a spinner, which
+   * then slid away. Hiding on unmount means the splash lifts at the exact
+   * moment we hand off to the real screen, and this one is never seen.
+   *
+   * StartupSplashGate keeps a timeout as a backstop, so a routing path that
+   * never resolves cannot strand anyone on a splash.
+   */
+  useEffect(() => {
+    return () => {
+      SplashScreen.hideAsync().catch(() => {});
+    };
+  }, []);
+
+  // Deliberately empty and splash-coloured rather than a spinner: with the
+  // splash held above it this is never visible, and if it ever does show it
+  // should read as the splash rather than as a fourth screen.
+  return <View style={styles.loading} />;
 }
 
 const styles = StyleSheet.create({
@@ -234,6 +281,9 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: BrandColors.primary,
+    // Matches the splash's background (app.json → expo-splash-screen), not the
+    // brand ink it used to use — the mismatch was what made the hand-off read
+    // as a separate screen.
+    backgroundColor: "#FFFFFF",
   },
 });
