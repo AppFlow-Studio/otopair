@@ -20,7 +20,8 @@ import { Stack, useSegments, type ErrorBoundaryProps } from "expo-router";
 import { guardedRouter as router } from "@/lib/navigationLock";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
-import { ConvexProviderWithAuth, ConvexReactClient, useConvexAuth, useQuery } from "convex/react";
+import { ConvexProviderWithAuth, useConvexAuth, useQuery } from "convex/react";
+import { getConvexClient } from "@/lib/convexClient";
 import {
   type ReactNode,
   createContext,
@@ -105,9 +106,7 @@ if (typeof global !== "undefined") {
 // sole root, with nothing underneath.
 export const unstable_settings = {};
 
-const convex = new ConvexReactClient(process.env.EXPO_PUBLIC_CONVEX_URL!, {
-  unsavedChangesWarning: false,
-});
+const convex = getConvexClient();
 
 function ConsoleToConvexLogger() {
   useConsoleToConvex();

@@ -27,10 +27,11 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { api } from "@/convex/_generated/api";
+import { getConvexClient } from "@/lib/convexClient";
 
 const BASE_URL = "https://api.vehicledatabases.com/vehicle-images";
 const TRIM_OPTIONS_URL = "https://api.vehicledatabases.com/ymm-specs/options/v3/trim";
-const API_KEY = process.env.EXPO_PUBLIC_VEHICLE_DB_API_KEY ?? "";
 
 // ──────────────────────────────────────────────────────────────
 // VDB request throttle — cold loads fire ~15+ requests (colors +
@@ -68,9 +69,14 @@ function isVdbCoolingDown(url: string): boolean {
 }
 
 /**
- * Throttled wrapper around `fetch` for VDB requests. Caps concurrent
- * in-flight calls at VDB_MAX_CONCURRENT (queues the rest) and handles the
- * cooldown window (just hit 429 in the last 10s).
+ * Throttled VDB request. Caps concurrent in-flight calls at VDB_MAX_CONCURRENT
+ * (queues the rest) and handles the cooldown window (just hit 429 in the last
+ * 10s).
+ *
+ * The request itself goes through the `vdbProxy.get` Convex action, which adds
+ * the API key server-side — the key used to be inlined into this bundle, where
+ * anyone could extract it (bug #435). Only the path is sent; the proxy's answer
+ * is rebuilt as a `Response` so callers read it exactly as they read `fetch`.
  *
  * `background` is what separates the two callers, and it matters more than it
  * looks. A cooldown short-circuit DROPS the request — no retry, nothing to
@@ -87,7 +93,6 @@ function isVdbCoolingDown(url: string): boolean {
  */
 async function vdbFetch(
   url: string,
-  init?: RequestInit,
   opts?: { background?: boolean },
 ): Promise<Response> {
   if (isVdbCoolingDown(url)) {
@@ -109,9 +114,11 @@ async function vdbFetch(
   }
   vdbInFlight++;
   try {
-    const response = await fetch(url, init);
-    if (response.status === 429) markVdbCooldown(url);
-    return response;
+    const { status, body } = await getConvexClient().action(api.vdbProxy.get, {
+      path: url.replace(/^https?:\/\/[^/]+/, ""),
+    });
+    if (status === 429) markVdbCooldown(url);
+    return new Response(body || null, { status });
   } finally {
     vdbInFlight--;
     const next = vdbWaitQueue.shift();
@@ -191,7 +198,7 @@ export async function fetchVdbModelsForYmm(
     for (const mk of makes) {
       const url = `${MODEL_OPTIONS_URL}/${year}/${encodeURIComponent(mk)}`;
       console.log("[vdbModels] GET", url);
-      const response = await vdbFetch(url, { headers: { "x-AuthKey": API_KEY } }, opts);
+      const response = await vdbFetch(url, opts);
       console.log("[vdbModels] status", response.status);
       if (response.status === 401) {
         console.warn(
@@ -501,7 +508,7 @@ async function probeYmmSpecsTrims(
 ): Promise<string[] | null> {
   try {
     const url = `${TRIM_OPTIONS_URL}/${year}/${encodeURIComponent(make)}/${encodeURIComponent(model)}`;
-    const response = await vdbFetch(url, { headers: { "x-AuthKey": API_KEY } }, opts);
+    const response = await vdbFetch(url, opts);
     if (response.status === 429 || response.status >= 500) return null;
     if (!response.ok) return [];
     const json = await response.json();
@@ -844,11 +851,7 @@ export async function fetchVehicleImageUrl(
 
     for (const url of urls) {
       console.log("[vehicleImage] GET", url);
-      // Header casing matches the working convex caller in
-      // `convex/lib/vehicleDatabases.ts`. The API gateway has been
-      // observed to 403 on lowercased "x-authkey" despite RFC saying
-      // header names are case-insensitive — keep this capitalized.
-      const response = await vdbFetch(url, { headers: { "x-AuthKey": API_KEY } });
+      const response = await vdbFetch(url);
       console.log("[vehicleImage] status", response.status, "ok?", response.ok);
       if (response.status === 429) {
         // Cooldown handles repeats — bail the URL loop so we don't try
@@ -1530,7 +1533,7 @@ export async function fetchVdbColorsForVehicle(args: {
 
   for (const url of urls) {
     try {
-      const response = await vdbFetch(url, { headers: { "x-AuthKey": API_KEY } }, fetchOpts);
+      const response = await vdbFetch(url, fetchOpts);
       // 429 means VDB rate-limited us — every other URL in this loop
       // hits the same global limit and will also 429. Bail and let the
       // caller render the placeholder until the cooldown expires.
@@ -1596,7 +1599,7 @@ export async function fetchVdbColorsForVehicle(args: {
       const url = `${BASE_URL}/${year}/${encodeURIComponent(make)}/${encodeURIComponent(combo.model)}/${encodeURIComponent(combo.trim)}`;
       console.log("[vdbColors] combo probe", url);
       try {
-        const response = await vdbFetch(url, { headers: { "x-AuthKey": API_KEY } }, fetchOpts);
+        const response = await vdbFetch(url, fetchOpts);
         // Bail the entire combo matrix on 429 — same global limit applies
         // to every model/trim permutation. Caller falls through to model
         // discovery which is also gated by the cooldown.
