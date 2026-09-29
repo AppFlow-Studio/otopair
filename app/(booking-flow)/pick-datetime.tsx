@@ -56,6 +56,7 @@ import { useShopStore } from "@/stores/useShopStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { resolveBookingVehicleVin } from "@/utils/bookingVehicle";
 import { shopTimezoneAbbreviation } from "@/lib/shopTimezone";
+import { useCoachAnchor } from "@/components/coach/useCoachAnchor";
 import {
   displayTimeToHHMM,
   findFirstAvailableDate,
@@ -280,6 +281,7 @@ export default function PickDateTimeScreen() {
       ? null
       : { year, month };
   });
+  const confirmAnchor = useCoachAnchor("booking.confirm", 24);
   const [monthPickerVisible, setMonthPickerVisible] = useState(false);
 
   // The date chips we'll render. For the current month we anchor on
@@ -827,10 +829,14 @@ export default function PickDateTimeScreen() {
         </View>
       </ScrollView>
 
-      <ConfirmBookingBar
-        selectionLabel={selectionLabel}
-        onPress={() => void onConfirm()}
-      />
+      {/* Coach anchor rides the existing wrapper — no node added, so the
+          bar cannot shift under the hint that points at it. */}
+      <View {...confirmAnchor}>
+        <ConfirmBookingBar
+          selectionLabel={selectionLabel}
+          onPress={() => void onConfirm()}
+        />
+      </View>
 
       <MonthPickerSheet
         visible={monthPickerVisible}

@@ -156,7 +156,15 @@ export default function RotorBookingScreen({ onClose, onConfirmed }: RotorBookin
     setIsSubmitting(true);
     haptics.cta();
     requestAnimationFrame(() => {
-      void fireRequest();
+      // Quote generation runs detached so the requesting screen can mount
+      // immediately. A rejection here used to vanish, leaving the driver on a
+      // confirm countdown for a request whose quotes had already failed to
+      // generate — another silent dead end in this flow (cf. #231, #240).
+      fireRequest().catch((err: unknown) => {
+        if (__DEV__) {
+          console.warn("[rotor] fireRequest failed", err);
+        }
+      });
       if (onClose) {
         setIsSubmitting(false);
         setShowRequestingInline(true);

@@ -46,6 +46,7 @@ import {
   Modal,
   TouchableOpacity,
   Image,
+  Linking,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Plus } from "lucide-react-native";
@@ -70,6 +71,13 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
   );
   const [hasSelectedNewPhoto, setHasSelectedNewPhoto] = useState(false);
   const [showPhotoModal, setShowPhotoModal] = useState(false);
+  /** Which permission was just refused, if any. Denying used to close the
+   *  sheet silently — which also took away the OTHER option, so refusing the
+   *  camera removed the library button the driver needed (#320). The sheet
+   *  now stays open, says what happened, and offers Settings, because iOS
+   *  only shows its prompt once: after a refusal, requestCameraPermissions
+   *  returns denied immediately and Settings is the only way back. */
+  const [permissionNotice, setPermissionNotice] = useState<null | "camera" | "library">(null);
 
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => { onBack(); return true; });
@@ -98,9 +106,10 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
   const pickFromLibrary = async () => {
     const hasPermission = await requestLibraryPermission();
     if (!hasPermission) {
-      setShowPhotoModal(false);
+      setPermissionNotice("library");
       return;
     }
+    setPermissionNotice(null);
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       allowsEditing: true,
@@ -119,9 +128,10 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
   const takePhoto = async () => {
     const hasPermission = await requestCameraPermission();
     if (!hasPermission) {
-      setShowPhotoModal(false);
+      setPermissionNotice("camera");
       return;
     }
+    setPermissionNotice(null);
     const result = await ImagePicker.launchCameraAsync({
       allowsEditing: true,
       aspect: [1, 1],
@@ -143,6 +153,9 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
 
   const handleCloseModal = () => {
     setShowPhotoModal(false);
+    // Reset the notice so re-opening the sheet starts from "Select an option"
+    // rather than a stale refusal message.
+    setPermissionNotice(null);
   };
 
   const handleContinue = async () => {
@@ -160,10 +173,25 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
     onNext();
   };
 
-  // TEMP: bypass gate so Ahmad can walk through the remaining
-  // onboarding screens without picking a photo. Revert to
-  // `imageUri !== null` before shipping.
-  const canContinue = __DEV__ ? true : imageUri !== null;
+  /**
+   * Continue is ALWAYS available — a profile photo is optional.
+   *
+   * This used to be `__DEV__ ? true : imageUri !== null`, a temporary dev
+   * bypass. The consequence only existed in production, which is why it
+   * survived: on a TestFlight build the button stayed disabled until a photo
+   * was chosen, so a driver who refused camera access and had no library
+   * photo could not finish onboarding at all. That is the "no skip — I get
+   * stuck" half of #320, and it is a hard dead-end with no recovery inside
+   * the app.
+   *
+   * It also contradicted this component's own stated purpose ("upload a
+   * profile photo or skip for now"), and `handleContinue` already handles a
+   * null imageUri by simply moving on.
+   *
+   * If product wants to push harder for photos, that belongs in the copy or
+   * a follow-up prompt — not a gate a permission refusal can lock.
+   */
+  const canContinue = true;
 
   return (
     <View style={[styles.container, dynamicStyles.container]}>
@@ -229,7 +257,21 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
             onPress={(e) => e.stopPropagation()}
           >
             <Text style={styles.photoModalTitle}>Profile photo</Text>
-            <Text style={styles.photoModalSubtitle}>Select an option</Text>
+            <Text style={styles.photoModalSubtitle}>
+              {permissionNotice === "camera"
+                ? "Camera access is off. You can still choose an existing photo, or turn the camera on in Settings."
+                : permissionNotice === "library"
+                  ? "Photo access is off. You can still take a photo, or turn access on in Settings."
+                  : "Select an option"}
+            </Text>
+            {permissionNotice ? (
+              <TouchableOpacity
+                style={styles.photoModalTextButton}
+                onPress={() => void Linking.openSettings()}
+              >
+                <Text style={styles.photoModalPrimaryTextInline}>Open Settings</Text>
+              </TouchableOpacity>
+            ) : null}
             <View style={styles.photoModalButtons}>
               <TouchableOpacity
                 style={styles.photoModalPrimaryButton}
@@ -415,6 +457,14 @@ const styles = StyleSheet.create({
   photoModalTextButton: {
     paddingVertical: Spacing.sm,
     alignItems: "center",
+  },
+  /** Settings link inside the sheet — reads as an action, not a dismissal,
+   *  so it is not mistaken for the Cancel beneath it. */
+  photoModalPrimaryTextInline: {
+    fontFamily: FontFamily.semiBold,
+    fontSize: FontSize.md,
+    color: BrandColors.secondary,
+    textAlign: "center",
   },
   photoModalTextButtonLabel: {
     fontSize: FontSize.md,

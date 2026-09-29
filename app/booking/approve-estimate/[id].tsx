@@ -652,6 +652,30 @@ function ApprovalDecisionView({
   }
 
   if (isLoading || !approval || !breakdown) {
+    // Landing here is almost always a STALE NOTIFICATION, not an error: the
+    // estimate card stayed in the bell after the customer answered it, and
+    // tapping it again finds no open row. "No estimate is waiting for your
+    // review." was the whole screen — no explanation, no way forward — so it
+    // read as "your approval didn't go through". It had. Bug #343.
+    //
+    // The booking's own state says what actually happened, so say that, and
+    // always offer the way back to the booking.
+    const pas = (booking as { payment_approval_state?: string } | null)
+      ?.payment_approval_state;
+    const settled = (() => {
+      if (isLoading) return null;
+      if (!pas) return null;
+      if (pas.endsWith("_approved") || pas === "hold_processing" || pas === "captured" || pas === "in_range") {
+        return "You've already approved this update. Nothing else is needed.";
+      }
+      if (pas.endsWith("_declined")) {
+        return "You declined this update. Your mechanic has been told.";
+      }
+      if (pas === "sla_expired") {
+        return "This estimate expired before it was answered. Your mechanic will be in touch.";
+      }
+      return null;
+    })();
     return (
       <View style={[styles.root, { paddingTop: insets.top + Spacing.lg }]}>
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
@@ -659,9 +683,27 @@ function ApprovalDecisionView({
           <Text style={styles.backLabel}>Back</Text>
         </Pressable>
         <View style={styles.center}>
-          <Text style={{ color: SemanticColors.textMuted }}>
-            {isLoading ? "Loading…" : "No estimate is waiting for your review."}
+          <Text style={[styles.emptyText, { color: SemanticColors.textMuted }]}>
+            {isLoading
+              ? "Loading…"
+              : (settled ?? "No estimate is waiting for your review.")}
           </Text>
+          {!isLoading ? (
+            <Pressable
+              onPress={() =>
+                router.replace({
+                  pathname: "/(main-tabs)/bookings",
+                  params: { bookingId: String(bookingId) },
+                } as never)
+              }
+              style={styles.emptyCta}
+              accessibilityRole="button"
+            >
+              <Text weight="semiBold" style={styles.emptyCtaLabel}>
+                View booking details
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
       </View>
     );
@@ -1144,6 +1186,9 @@ interface ReauthBreakdown {
   laborHours: number | null;
   notes: string | null;
   parts: ReauthBreakdownPart[];
+  /** Mechanic's scope-justification photos. `[]` on the quote fallback, and
+   *  on any deploy that predates the field — hence the optional. */
+  scopePhotos?: { storage_id: string; url: string }[];
 }
 
 /**
@@ -1222,6 +1267,8 @@ function ReauthView({
   const [submitting, setSubmitting] = useState(false);
   // Payment picker (Apple Pay / Google Pay / saved cards / add card).
   const [pickerVisible, setPickerVisible] = useState(false);
+  // Full-screen viewer for a tapped mechanic scope photo (null = closed).
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const toast = useToast();
   // Phase policy — same source of truth as the booking card / details sheet.
   // Drives whether "Cancel booking" shows here and what it does. A completed
@@ -1569,6 +1616,38 @@ function ReauthView({
               </View>
             ) : null}
 
+            {/* The visual half of "why the change". Same strip, same position
+                relative to the reason, as the approve/decline screen — this is
+                the screen an in-range change is actually shown on, so leaving
+                it out here meant the photos had nowhere to land. */}
+            {(breakdown.scopePhotos ?? []).length > 0 ? (
+              <View style={styles.scopePhotos}>
+                <Text weight="semiBold" style={styles.scopePhotosLabel}>
+                  Photos from your mechanic
+                </Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.scopePhotoStrip}
+                >
+                  {(breakdown.scopePhotos ?? []).map((p) => (
+                    <Pressable
+                      key={p.storage_id}
+                      onPress={() => setLightboxUrl(p.url)}
+                      accessibilityRole="imagebutton"
+                      accessibilityLabel="View mechanic photo"
+                    >
+                      <Image
+                        source={{ uri: p.url }}
+                        style={styles.scopeThumb}
+                        resizeMode="cover"
+                      />
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+            ) : null}
+
             <View style={styles.cardDivider} />
 
             <View style={styles.totalsBlock}>
@@ -1728,6 +1807,40 @@ function ReauthView({
         googlePaySupported={googlePaySupported}
         onAddCard={() => router.push({ pathname: "/add-payment" } as any)}
       />
+
+      {/* Full-screen scope-photo viewer — same behaviour as the approve/decline
+          screen. Tap the backdrop or the close button to dismiss. */}
+      <Modal
+        visible={lightboxUrl !== null}
+        transparent
+        statusBarTranslucent
+        animationType="fade"
+        onRequestClose={() => setLightboxUrl(null)}
+      >
+        <Pressable
+          style={styles.lightboxBackdrop}
+          onPress={() => setLightboxUrl(null)}
+        >
+          {lightboxUrl ? (
+            <Image
+              source={{ uri: lightboxUrl }}
+              style={styles.lightboxImage}
+              resizeMode="contain"
+            />
+          ) : null}
+          <View style={[styles.lightboxTopBar, { top: insets.top + Spacing.md }]}>
+            <Pressable
+              onPress={() => setLightboxUrl(null)}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel="Close photo"
+              style={styles.lightboxClose}
+            >
+              <X size={20} color="#FFFFFF" strokeWidth={2.5} />
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -1742,6 +1855,19 @@ const styles = StyleSheet.create({
   },
   backLabel: { color: BrandColors.primary, marginLeft: 2 },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  emptyText: {
+    textAlign: "center",
+    paddingHorizontal: Spacing.xl,
+    lineHeight: 22,
+  },
+  emptyCta: {
+    marginTop: Spacing.lg,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.md,
+    borderRadius: 12,
+    backgroundColor: SemanticColors.primaryBlue,
+  },
+  emptyCtaLabel: { color: "#FFFFFF" },
 
   // ── Hero ──────────────────────────────────────────────────────────────
   hero: {

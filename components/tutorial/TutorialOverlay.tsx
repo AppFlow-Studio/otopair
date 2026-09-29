@@ -22,6 +22,7 @@ import {
   AccessibilityInfo,
   BackHandler,
   Dimensions,
+  useWindowDimensions,
   Modal,
   Pressable,
   StyleSheet,
@@ -40,7 +41,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { OtoEasing, SpringConfig } from "@/constants/animations";
 import { BrandColors, FontFamily } from "@/constants/theme";
-import { PhoneMock } from "./PhoneMock";
+import { PhoneMock, PHONE_HEIGHT, PHONE_WIDTH } from "./PhoneMock";
 import { BookingsCrop } from "./crops/BookingsCrop";
 import { CarsCrop } from "./crops/CarsCrop";
 import { HomeCrop } from "./crops/HomeCrop";
@@ -85,6 +86,15 @@ const COMMIT_FRACTION = 0.35;
  * watch one phone leave and another arrive, and at scale-appropriate speeds it
  * reads as a flicker between two states rather than a movement between them.
  */
+/**
+ * Everything on a tutorial step that is not the phone frame: the header row
+ * with Skip/Back, the gap under the frame, two lines of headline plus body,
+ * the dots, the CTA and its spacer. Measured against the rendered step rather
+ * than guessed, so the scale below only kicks in when the frame genuinely
+ * cannot fit.
+ */
+const TOUR_CHROME_HEIGHT = 290;
+
 const PHONE_OUT = 450;
 const PHONE_IN = 700;
 /** Copy trails the phone in, so the art leads and the words follow. */
@@ -125,6 +135,32 @@ function Crop({
 
 export function TutorialOverlay({ visible, onDismiss, onAddCar }: TutorialOverlayProps) {
   const insets = useSafeAreaInsets();
+
+  /**
+   * Shrink the phone frame when the screen cannot hold it at full size.
+   *
+   * PhoneMock is fixed at 216x400 on purpose — a device frame that scales with
+   * Dynamic Type stops reading as a device. But "fixed" was being applied to
+   * the SCREEN as well as the type: `body` is flex:1 with justifyContent
+   * center, so once the phone, the 44pt gap, the copy and the footer add up to
+   * more than the window, the whole stack overflowed its container and the
+   * frame was clipped top and bottom. That is roughly 730pt of chrome, so
+   * every phone shorter than an iPhone 15 laid out wrong (#270).
+   *
+   * The frame keeps its exact proportions and only loses absolute size, and
+   * only on devices that cannot fit it. Clamped at 0.72 so it never shrinks
+   * into an illustration of a phone.
+   */
+  const { height: windowHeight } = useWindowDimensions();
+  const phoneScale = useMemo(() => {
+    const chrome = insets.top + insets.bottom + TOUR_CHROME_HEIGHT;
+    const available = windowHeight - chrome;
+    return Math.max(0.72, Math.min(1, available / PHONE_HEIGHT));
+  }, [windowHeight, insets.top, insets.bottom]);
+
+  // The 44pt breathing room between frame and copy is generous on a tall
+  // screen and the first thing worth giving up on a short one.
+  const bodyGap = phoneScale < 1 ? 24 : 44;
   const [index, setIndex] = useState(0);
   const [reduceMotion, setReduceMotion] = useState(false);
   /** Gates the in-crop beats. Held false during a transition so a step's
@@ -340,12 +376,26 @@ export function TutorialOverlay({ visible, onDismiss, onAddCar }: TutorialOverla
         ) : null}
 
         <GestureDetector gesture={pan}>
-          <View style={styles.body}>
+          <View style={[styles.body, { gap: bodyGap }]}>
             {step.crop ? (
               <Animated.View style={phoneStyle}>
-                <PhoneMock screenColor={step.crop === "oto" ? "#FFFFFF" : "#F2F6F9"}>
-                  <Crop crop={step.crop} play={beatsPlaying} reduceMotion={reduceMotion} />
-                </PhoneMock>
+                {/* The outer View reserves the SCALED footprint so the rest of
+                    the column lays out against what is actually drawn; the
+                    transform scales about the centre, so the two agree. */}
+                <View
+                  style={{
+                    width: PHONE_WIDTH * phoneScale,
+                    height: PHONE_HEIGHT * phoneScale,
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <View style={{ transform: [{ scale: phoneScale }] }}>
+                    <PhoneMock screenColor={step.crop === "oto" ? "#FFFFFF" : "#F2F6F9"}>
+                      <Crop crop={step.crop} play={beatsPlaying} reduceMotion={reduceMotion} />
+                    </PhoneMock>
+                  </View>
+                </View>
               </Animated.View>
             ) : (
               <View style={styles.cardArt} />

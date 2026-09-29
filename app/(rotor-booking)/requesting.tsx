@@ -8,7 +8,7 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
-import { type DimensionValue, StyleSheet, useWindowDimensions, View } from "react-native";
+import { StyleSheet, useWindowDimensions, View } from "react-native";
 
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import LottieView from "lottie-react-native";
@@ -30,6 +30,7 @@ import { formatRotorsLabel } from "@/constants/rotorFlow";
 import { useCreateRotorQuoteRequest } from "@/hooks/useCreateRotorQuoteRequest";
 import { calculateBookingConfirmLayout } from "@/lib/bookingConfirmSheet";
 import { useRotorBookingStore } from "@/stores/useRotorBookingStore";
+import { useToast } from "@/hooks/useToast";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 
 interface RotorRequestingScreenProps {
@@ -42,6 +43,7 @@ export default function RotorRequestingScreen({
   onConfirmed,
 }: RotorRequestingScreenProps = {}) {
   const router = useRouter();
+  const toast = useToast();
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const statusSheetRef = useRef<FloatingSheetRef>(null);
   const confirmSheetRef = useRef<QuoteRequestConfirmationSheetRef>(null);
@@ -74,7 +76,17 @@ export default function RotorRequestingScreen({
   }, []);
 
   const handleStatusSheetClosed = useCallback(() => {
-    if (confirmedRef.current) return;
+    if (confirmedRef.current) {
+      // Confirmed path: hand over to the confirmation Modal now, not on a
+      // timer. FloatingSheet renders inside a native <Modal> and so does the
+      // confirmation sheet; opening the second 250ms after close() presented
+      // it over a status sheet that does not unmount until 280ms, and iOS
+      // dismissed the child along with its parent 30ms later. See the tire
+      // flow, where the same copy-paste stranded the driver on the bare
+      // loading screen.
+      confirmSheetRef.current?.open();
+      return;
+    }
     if (onClose) {
       onClose();
       return;
@@ -95,7 +107,11 @@ export default function RotorRequestingScreen({
 
     const rotorsLabel = formatRotorsLabel(axle, brakeSystemType);
 
-    void createRotorQuoteRequest({
+    // The submit is intentionally not awaited — the confirmation is
+    // optimistic. But a rejection must not vanish: the hook throws when the
+    // user or VIN is still loading, and that used to leave the driver with a
+    // "request sent" screen for a request that was never made.
+    createRotorQuoteRequest({
       rotorsLabel,
       vehicleVin: requestVehicleVin,
       rotorSpecs: {
@@ -104,13 +120,17 @@ export default function RotorRequestingScreen({
         include_pads: includePads,
         ...(includePads && padType ? { pad_type: padType } : {}),
       },
+    }).catch((err: unknown) => {
+      const message =
+        err instanceof Error ? err.message : "Please try again in a moment.";
+      toast.error("Couldn't request brake quotes", message);
     });
 
+    // Close the status sheet. The confirmation Modal is opened from that
+    // sheet's onClose, once it has actually unmounted — see
+    // handleStatusSheetClosed.
     statusSheetRef.current?.close();
-    setTimeout(() => {
-      confirmSheetRef.current?.open();
-    }, 250);
-  }, [brakeSystemType, axle, includePads, padType, createRotorQuoteRequest, requestVehicleVin]);
+  }, [brakeSystemType, axle, includePads, padType, createRotorQuoteRequest, requestVehicleVin, toast]);
 
   const handleBackToBooking = useCallback(() => {
     confirmSheetRef.current?.close();
@@ -144,7 +164,7 @@ export default function RotorRequestingScreen({
         style={[
           styles.copyOverlay,
           isCompactLayout && styles.copyOverlayCompact,
-          { top: confirmLayout.copyTopPercent as DimensionValue },
+          { top: confirmLayout.copyTop },
           copyAnimStyle,
         ]}
         pointerEvents="none"

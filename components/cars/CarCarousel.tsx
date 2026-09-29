@@ -12,6 +12,7 @@
 // 1. React & React Native
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   Dimensions,
   Image,
@@ -93,6 +94,9 @@ export interface Vehicle {
   nextServiceDate?: string;
   isDefault: boolean;
   imageSource?: ImageSourcePropType;
+  /** True while a photo lookup for this VIN is still in flight — the card
+   *  waits instead of flashing the covered-car placeholder. */
+  imagePending?: boolean;
   logoSource?: ImageSourcePropType;
   condition?: number;
   nextUnlock?: string;
@@ -1764,7 +1768,25 @@ interface CarouselItemProps {
 
 const CircularCarouselItem = memo(({ item, index, rotation, totalItems }: CarouselItemProps) => {
   const [hasImageError, setHasImageError] = useState(false);
-  const imageSource = hasImageError ? FALLBACK_VEHICLE_IMAGE : (item.imageSource || FALLBACK_VEHICLE_IMAGE);
+  const [imageLoaded, setImageLoaded] = useState(false);
+
+  /* `item.imageSource` being undefined used to mean two different things —
+     "this car has no photo" and "the lookup hasn't come back yet" — and both
+     collapsed to `|| FALLBACK_VEHICLE_IMAGE`. So opening the garage showed a
+     shrouded car for a beat and then swapped in the real one.
+
+     A car under a dust sheet doesn't read as "loading"; it reads as "we don't
+     know what you drive". The cars screen now reports `imagePending`, so the
+     placeholder is held back until we KNOW nothing is coming. */
+  const resolving = !!item.imagePending && !item.imageSource;
+  const downloading = !!item.imageSource && !imageLoaded && !hasImageError;
+  const waiting = resolving || downloading;
+  const showFallback = !waiting && (!item.imageSource || hasImageError);
+
+  useEffect(() => {
+    setImageLoaded(false);
+    setHasImageError(false);
+  }, [item.imageSource]);
 
   const animatedStyle = useAnimatedStyle(() => {
     const anglePerItem = (2 * Math.PI) / totalItems;
@@ -1833,16 +1855,40 @@ const CircularCarouselItem = memo(({ item, index, rotation, totalItems }: Carous
       {/* Car Image — uses expo-image so VDB's baked alpha drop
           shadow renders faithfully (RN's built-in Image washed it out
           on iOS). */}
-      <ExpoImage
-        source={imageSource}
-        style={[
-          styles.carouselCarImage,
-          item.make === 'Lexus' && styles.carouselCarImageLexus,
-          item.make === 'Lamborghini' && styles.carouselCarImageLambo,
-        ]}
-        contentFit="contain"
-        onError={() => setHasImageError(true)}
-      />
+      {item.imageSource && !hasImageError ? (
+        <ExpoImage
+          source={item.imageSource}
+          style={[
+            styles.carouselCarImage,
+            item.make === 'Lexus' && styles.carouselCarImageLexus,
+            item.make === 'Lamborghini' && styles.carouselCarImageLambo,
+          ]}
+          contentFit="contain"
+          // expo-image's own crossfade — the swap is the reveal, so it
+          // shouldn't snap.
+          transition={220}
+          onLoad={() => setImageLoaded(true)}
+          onError={() => setHasImageError(true)}
+        />
+      ) : null}
+
+      {showFallback ? (
+        <ExpoImage
+          source={FALLBACK_VEHICLE_IMAGE}
+          style={[
+            styles.carouselCarImage,
+            item.make === 'Lexus' && styles.carouselCarImageLexus,
+            item.make === 'Lamborghini' && styles.carouselCarImageLambo,
+          ]}
+          contentFit="contain"
+        />
+      ) : null}
+
+      {waiting ? (
+        <View style={styles.carouselCarImageSpinner} pointerEvents="none">
+          <ActivityIndicator color={BrandColors.secondary} />
+        </View>
+      ) : null}
       
       {/* Reflection removed — car images have white backgrounds */}
     </ReAnimated.View>
@@ -2900,6 +2946,13 @@ const styles = StyleSheet.create({
   carouselLogoLambo: {
     width: scale(240),
     height: scale(240),
+  },
+  // Overlays the image box so the spinner sits where the car will be.
+  carouselCarImageSpinner: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1,
   },
   carouselCarImage: {
     width: '100%',
