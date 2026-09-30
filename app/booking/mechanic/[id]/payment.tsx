@@ -1144,7 +1144,14 @@ export default function PaymentScreen() {
                       amount above. Rate suffix surfaces the per-tier labor
                       rate so customers see what's being applied — different
                       vehicle tiers get different shop rates. */}
-                  Labor ({formatDurationForCar(breakdown.laborHours) ?? "0 mins"}
+                  {/* "Includes" is load-bearing (#322/#417): this amount is
+                      ALREADY inside the service prices listed above, but it sat
+                      in the same column as Taxes & Fees — which genuinely adds —
+                      so it read as a second charge ("Tire Rotation $75.00", then
+                      "Labor $75.00", under a total containing one of them).
+                      The same fix (04b27357) landed in ReviewPayContent.tsx,
+                      which no longer renders; this is the live screen. */}
+                  Includes labor ({formatDurationForCar(breakdown.laborHours) ?? "0 mins"}
                   {breakdown.effectiveLaborRate ? ` @ $${breakdown.effectiveLaborRate}/hr` : ""})
                 </Text>
                 <Text size="sm" weight="medium" color="#6B7280">

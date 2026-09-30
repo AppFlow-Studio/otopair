@@ -188,7 +188,7 @@ function PartRow({ part }: { part: PaymentBreakdownPart }) {
     <View style={styles.partRow}>
       <View style={styles.partLeft}>
         <Text size="sm" weight="semiBold" color="#1A1A1A">
-          {part.part_name ?? "Part"}
+          {part.part_name?.trim() || "Part"}
         </Text>
         {part.oem_number ? (
           <Text size="xs" weight="regular" color="#8E8E93">

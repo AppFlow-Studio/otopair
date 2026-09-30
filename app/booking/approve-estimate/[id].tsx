@@ -852,7 +852,7 @@ function ApprovalDecisionView({
               <View key={idx} style={styles.partRow}>
                 <View style={{ flex: 1 }}>
                   <Text weight="semiBold" style={styles.partName}>
-                    {p?.part_name ?? "Part"}
+                    {p?.part_name?.trim() || "Part"}
                   </Text>
                   {p?.oem_number ? (
                     <Text style={styles.partOem}>
