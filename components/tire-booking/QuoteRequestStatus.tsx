@@ -13,10 +13,11 @@
  */
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
 
 import { Car, Clock, Disc3 } from "lucide-react-native";
 import Animated, {
+  cancelAnimation,
   Easing,
   useAnimatedStyle,
   useSharedValue,
@@ -174,48 +175,78 @@ const COUNTDOWN_SECONDS = 7;
  * darker-blue progress fill; auto-fires `onConfirm` when it reaches 0. The
  * user can tap at any time to confirm instantly. The timer is cancelled if
  * the button unmounts (e.g. via the Go back secondary).
+ *
+ * `paused` freezes the countdown where it is (fill + label) and resumes from
+ * there when it clears — the checkout confirm sheet pauses while the app is
+ * backgrounded or something it depends on changed underneath it (price, a
+ * service the shop stopped offering, a reschedule that's no longer allowed —
+ * bugs #390 / #393 / #403), so nothing is committed that the customer didn't
+ * see. `disabled` additionally ignores taps (implies paused).
  */
 export function ConfirmCountdownButton({
   onConfirm,
   compact = false,
   label = "Confirm",
+  paused = false,
+  disabled: disabledProp = false,
+  loading = false,
 }: {
   onConfirm: () => void;
   compact?: boolean;
   label?: string;
+  paused?: boolean;
+  disabled?: boolean;
+  /** Inputs still loading: spinner, no auto-fire, no taps. */
+  loading?: boolean;
 }) {
+  const disabled = disabledProp || loading;
   const [remaining, setRemaining] = useState(COUNTDOWN_SECONDS);
   const progress = useSharedValue(0);
   const firedRef = useRef(false);
+  // Latest handler, so a resumed timer never fires a stale closure.
+  const onConfirmRef = useRef(onConfirm);
+  onConfirmRef.current = onConfirm;
+  // Countdown budget left, carried across pauses.
+  const remainingMsRef = useRef(COUNTDOWN_SECONDS * 1000);
+  const isPaused = paused || disabled;
 
   const fire = () => {
     if (firedRef.current) return;
     firedRef.current = true;
-    onConfirm();
+    onConfirmRef.current();
   };
 
   useEffect(() => {
+    if (isPaused || firedRef.current) {
+      cancelAnimation(progress);
+      return;
+    }
+    const budgetMs = remainingMsRef.current;
+    const startedAt = Date.now();
     progress.value = withTiming(1, {
-      duration: COUNTDOWN_SECONDS * 1000,
+      duration: budgetMs,
       easing: Easing.linear,
     });
 
-    // Tick the label every second. Pure updater — no side effects here.
+    // Tick the label. Pure updater — no side effects here.
     const interval = setInterval(() => {
-      setRemaining((prev) => (prev <= 1 ? 0 : prev - 1));
-    }, 1000);
+      const leftMs = Math.max(0, budgetMs - (Date.now() - startedAt));
+      setRemaining(Math.ceil(leftMs / 1000));
+    }, 250);
 
     // Auto-confirm via a separate timer so the navigation side-effect (which
     // triggers setState on the router) never runs inside a setRemaining
     // updater. Avoids React's "cannot update while rendering" warning.
-    const autoFireTimeout = setTimeout(fire, COUNTDOWN_SECONDS * 1000);
+    const autoFireTimeout = setTimeout(fire, budgetMs);
 
     return () => {
       clearInterval(interval);
       clearTimeout(autoFireTimeout);
+      remainingMsRef.current = Math.max(0, budgetMs - (Date.now() - startedAt));
+      cancelAnimation(progress);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [isPaused]);
 
   const fillStyle = useAnimatedStyle(() => ({
     width: `${progress.value * 100}%`,
@@ -227,18 +258,25 @@ export function ConfirmCountdownButton({
 
   return (
     <Pressable
-      onPress={fire}
+      onPress={disabled ? undefined : fire}
+      disabled={disabled}
+      accessibilityState={{ disabled }}
       style={({ pressed }) => [
         styles.actionButton,
         compact && styles.actionButtonCompact,
         styles.primaryButton,
-        pressed && styles.buttonPressed,
+        disabledProp && styles.primaryButtonDisabled,
+        pressed && !disabled && styles.buttonPressed,
       ]}
     >
       <Animated.View style={[styles.primaryFill, fillStyle]} pointerEvents="none" />
-      <Text size={compact ? "sm" : "md"} weight="semiBold" color="#FFFFFF">
-        {label} ({timerText})
-      </Text>
+      {loading ? (
+        <ActivityIndicator color="#FFFFFF" size="small" />
+      ) : (
+        <Text size={compact ? "sm" : "md"} weight="semiBold" color="#FFFFFF">
+          {isPaused ? label : `${label} (${timerText})`}
+        </Text>
+      )}
     </Pressable>
   );
 }
@@ -297,6 +335,9 @@ const styles = StyleSheet.create({
   primaryButton: {
     backgroundColor: "#5299FE",
     overflow: "hidden", // clip the animated countdown fill to the radius
+  },
+  primaryButtonDisabled: {
+    backgroundColor: "#A7C8F5",
   },
   primaryFill: {
     position: "absolute",

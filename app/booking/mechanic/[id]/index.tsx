@@ -39,6 +39,7 @@ import { ShopMechanicsSection } from "@/components/booking/ShopMechanicsSection"
 import { AddServicesModal, ShopBookingModal } from "@/components/booking/modals";
 
 // 5. Constants, hooks, types, stores
+import { releaseHeldSlot } from "@/lib/releaseHeldSlot";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
@@ -126,7 +127,9 @@ export default function MechanicDetailScreen() {
     // If we're in mechanic_selection, we came from "Choose Mechanic" screen
     // and should preserve the booking state when going back
     if (bookingStage !== "mechanic_selection") {
-      // We came from elsewhere, reset the booking flow
+      // We came from elsewhere, reset the booking flow. Release a live slot
+      // hold first — the reset drops its id (bug #393).
+      releaseHeldSlot();
       resetBookingFlow();
     }
     router.back();

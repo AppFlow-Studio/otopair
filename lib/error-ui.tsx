@@ -6,6 +6,44 @@
 import React, { Component, type ReactNode } from "react";
 import { useRouter } from "expo-router";
 import { ErrorOccurredModal } from "@/components/shared-ui";
+import { formatBookingError } from "@/convex/lib/bookingErrors";
+
+/**
+ * Info copy for a customer cancel that found the booking already ended —
+ * `api.bookings.cancelBooking` returns `{ alreadyClosed: true, status,
+ * cancelledByRole }` instead of throwing (bug #394). Returns null when the
+ * result is a real cancel, so callers keep their "Booking cancelled" toast.
+ * Never claims "Booking cancelled" or a fee for a race someone else won.
+ */
+export function alreadyClosedCancelCopy(
+  result:
+    | { alreadyClosed?: boolean; status?: string; cancelledByRole?: string | null }
+    | null
+    | undefined,
+): string | null {
+  if (!result?.alreadyClosed) return null;
+  switch (result.status) {
+    case "completed":
+      return "This booking was already completed.";
+    case "no_show":
+      return "This booking was already marked as a no-show.";
+    case "declined":
+      return "The shop already declined this booking.";
+    case "cancelled":
+      if (result.cancelledByRole === "shop") {
+        return "The shop already cancelled this booking.";
+      }
+      if (result.cancelledByRole === "customer") {
+        return "You already cancelled this booking.";
+      }
+      if (result.cancelledByRole === "system") {
+        return "This booking was already cancelled automatically.";
+      }
+      return "This booking was already cancelled.";
+    default:
+      return "This booking has already ended.";
+  }
+}
 
 export type ErrState = { error?: unknown; visible: boolean };
 
@@ -35,12 +73,12 @@ export function ErrorModalHost() {
     };
   }, []);
 
-  const message =
-    state.error instanceof Error
-      ? state.error.message
-      : state.error != null
-        ? String(state.error)
-        : "Something went wrong. Please try again.";
+  // One clean sentence — never the Convex wrapper, a stack frame or JSON
+  // that a raw `error.message` can carry (bug #394).
+  const message = formatBookingError(
+    state.error,
+    "Something went wrong. Please try again.",
+  );
 
   const handleClose = () => errorBus.set({ visible: false, error: undefined });
   const handleGoHome = () => {
@@ -116,10 +154,10 @@ export class ErrorBoundary extends Component<Props, State> {
       // Never an empty screen. Rendering null here used to blank the entire
       // app — and unmount the error modal host with it — so a caught render
       // error looked like a crash with no way back but force-quitting.
-      const message =
-        this.state.err instanceof Error && this.state.err.message
-          ? this.state.err.message
-          : "Something went wrong. Try again, or reload the app.";
+      const message = formatBookingError(
+        this.state.err,
+        "Something went wrong. Try again, or reload the app.",
+      );
       return (
         <ErrorOccurredModal
           visible

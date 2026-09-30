@@ -32,6 +32,7 @@ import { calculateBookingConfirmLayout } from "@/lib/bookingConfirmSheet";
 import { useRotorBookingStore } from "@/stores/useRotorBookingStore";
 import { useToast } from "@/hooks/useToast";
 import { useVehicleStore } from "@/stores/useVehicleStore";
+import { formatBookingError } from "@/convex/lib/bookingErrors";
 
 interface RotorRequestingScreenProps {
   onClose?: () => void;
@@ -121,8 +122,8 @@ export default function RotorRequestingScreen({
         ...(includePads && padType ? { pad_type: padType } : {}),
       },
     }).catch((err: unknown) => {
-      const message =
-        err instanceof Error ? err.message : "Please try again in a moment.";
+      // One clean sentence — never the Convex wrapper text (bug #394).
+      const message = formatBookingError(err, "Please try again in a moment.");
       toast.error("Couldn't request brake quotes", message);
     });
 

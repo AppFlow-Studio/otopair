@@ -43,6 +43,7 @@ import { BrandColors } from "@/constants/theme";
 import { useToast } from "@/hooks/useToast";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { formatBookingError } from "@/convex/lib/bookingErrors";
 
 const REASONS: Array<{ key: string; label: string }> = [
   { key: "wrong_part", label: "Part doesn't look right" },
@@ -178,9 +179,9 @@ export const FileDisputeSheet = forwardRef<FileDisputeSheetRef, Props>(
           "Thanks — we're on it",
           "We'll take a look and follow up within 1 business day.",
         );
-      } catch (e: any) {
+      } catch (e) {
         setError(
-          e?.message ?? "We couldn't send that just now. Please try again.",
+          formatBookingError(e, "We couldn't send that just now. Please try again."),
         );
         setSubmitting(false);
       }

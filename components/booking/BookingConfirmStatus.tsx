@@ -9,13 +9,15 @@
  *
  * USED IN: app/(booking)/mechanic/[id]/confirming.tsx
  */
-import React from "react";
-import { Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
+import React, { useEffect, useMemo, useState } from "react";
+import { AppState, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 
-import { Calendar, Car, User } from "lucide-react-native";
+import { AlertTriangle, Calendar, Car, User } from "lucide-react-native";
 
 import { FixedPriceBadge, Text } from "@/components/shared-ui";
 import { ConfirmCountdownButton } from "@/components/tire-booking/QuoteRequestStatus";
+import { diffCheckoutPrice } from "@/convex/lib/checkoutPrice";
+import { useCheckoutLivePriceLines } from "@/hooks/useCreateBookingConvex";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
@@ -34,6 +36,27 @@ interface Props {
   title?: string;
   primaryCta?: string;
   showPaymentSummary?: boolean;
+  /** Something the parent watches changed under the sheet (a service the
+   *  shop stopped offering, a reschedule that's no longer allowed). Shows the
+   *  message, stops the countdown and disables Confirm. */
+  blocker?: { message: string; actionLabel?: string; onAction?: () => void } | null;
+  /** Hold the countdown without a banner. */
+  paused?: boolean;
+  /** Something the Confirm depends on is still loading: hold the countdown
+   *  and show a spinner in the button instead of firing blind. */
+  loading?: boolean;
+}
+
+/** Pause while the app isn't in the foreground: Android freezes JS timers on
+ *  host pause but iOS keeps them running for a while, so a backgrounded sheet
+ *  could otherwise commit a booking nobody was looking at (#393). */
+function useAppIsActive(): boolean {
+  const [active, setActive] = useState(AppState.currentState === "active");
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => setActive(state === "active"));
+    return () => sub.remove();
+  }, []);
+  return active;
 }
 
 export function BookingConfirmStatus({
@@ -43,6 +66,9 @@ export function BookingConfirmStatus({
   title = "Confirming your appointment...",
   primaryCta,
   showPaymentSummary = true,
+  blocker = null,
+  paused = false,
+  loading = false,
 }: Props) {
   const { height: windowHeight } = useWindowDimensions();
   const scheduledAppointment = useBookingStore((s) => s.scheduledAppointment);
@@ -52,6 +78,32 @@ export function BookingConfirmStatus({
   const quoteAcceptContext = useBookingStore((s) => s.quoteAcceptContext);
   const disclosedRangeFormatted = useBookingStore((s) => s.disclosedRangeFormatted);
   const disclosedRangeIsFixedPrice = useBookingStore((s) => s.disclosedRangeIsFixedPrice);
+  const priceSnapshot = useBookingStore((s) => s.checkoutPriceSnapshot);
+  const appIsActive = useAppIsActive();
+
+  // #390: quote the price the customer agreed to on Review & Pay (the
+  // Authorize-time snapshot), and watch the same live pricing that screen
+  // renders. If a shop edit moves a line the server would reject, stop the
+  // auto-fire and send them back to review it instead of committing a price
+  // they never saw. Quote accepts carry a firm shop quote and no snapshot.
+  const priceCheckEnabled = showPaymentSummary && !quoteAcceptContext && priceSnapshot != null;
+  const { lines: liveLines } = useCheckoutLivePriceLines(priceCheckEnabled);
+  const priceChanged = useMemo(
+    () =>
+      priceCheckEnabled && priceSnapshot && liveLines
+        ? diffCheckoutPrice(priceSnapshot.price, liveLines).length > 0
+        : false,
+    [priceCheckEnabled, priceSnapshot, liveLines],
+  );
+  const displayedRange =
+    !quoteAcceptContext && priceSnapshot ? priceSnapshot.formatted : disclosedRangeFormatted;
+  const activeBlocker = priceChanged
+    ? {
+        message: "The price changed — review it before you confirm.",
+        actionLabel: "Review price",
+        onAction: onGoBack,
+      }
+    : blocker;
   const getMechanicById = useMechanicStore((s) => s.getMechanicById);
   const getShopById = useShopStore((s) => s.getShopById);
   const bookingVehicleVin = resolveBookingVehicleVin(
@@ -117,7 +169,24 @@ export function BookingConfirmStatus({
       </View>
 
       <View style={[styles.actionColumn, isCompactLayout && styles.actionColumnCompact, isVeryCompactLayout && styles.actionColumnVeryCompact]}>
-        {showPaymentSummary && disclosedRangeFormatted ? (
+        {activeBlocker ? (
+          <View style={styles.blockerBanner} accessibilityRole="alert">
+            <AlertTriangle size={16} color="#92400E" strokeWidth={2} />
+            <View style={styles.blockerText}>
+              <Text size="sm" weight="semiBold" color="#92400E">
+                {activeBlocker.message}
+              </Text>
+              {activeBlocker.actionLabel && activeBlocker.onAction ? (
+                <Pressable onPress={activeBlocker.onAction} hitSlop={8}>
+                  <Text size="sm" weight="bold" color="#1D4ED8">
+                    {activeBlocker.actionLabel}
+                  </Text>
+                </Pressable>
+              ) : null}
+            </View>
+          </View>
+        ) : null}
+        {showPaymentSummary && displayedRange ? (
           <View style={styles.rangeBlock}>
             <Text
               size={isVeryCompactLayout ? "sm" : "md"}
@@ -125,7 +194,7 @@ export function BookingConfirmStatus({
               color="#141C24"
               style={[styles.rangeLine, isVeryCompactLayout && styles.rangeLineVeryCompact]}
             >
-              The estimated price for your car is {disclosedRangeFormatted}.
+              The estimated price for your car is {displayedRange}.
             </Text>
             <View style={styles.rangeBadges}>
               {disclosedRangeIsFixedPrice ? <FixedPriceBadge size="sm" /> : null}
@@ -146,6 +215,9 @@ export function BookingConfirmStatus({
           onConfirm={onConfirm}
           compact={isCompactLayout}
           label={primaryCta}
+          paused={paused || !appIsActive}
+          disabled={activeBlocker != null}
+          loading={loading && activeBlocker == null}
         />
         <Pressable
           onPress={onGoBack}
@@ -305,6 +377,20 @@ const styles = StyleSheet.create({
   rangeLineVeryCompact: {
     lineHeight: 18,
     marginBottom: 2,
+  },
+  blockerBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: "#FFFBEB",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#FCD34D",
+  },
+  blockerText: {
+    flex: 1,
+    gap: 4,
   },
   rangeBlock: {
     alignItems: "center",

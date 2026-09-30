@@ -15,6 +15,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Dimensions,
   Platform,
   Pressable,
@@ -51,6 +52,8 @@ import {
 import { ServiceMultiSelectRow } from "@/components/booking-flow/ServiceMultiSelectRow";
 import { StickyContinueBar } from "@/components/booking-flow/StickyContinueBar";
 import { routeToNextBookingStep } from "@/lib/bookingFlowNext";
+import { dropServicesShopDoesntOffer } from "@/lib/pinnedShopCart";
+import { droppedServicesToast } from "@/lib/shopServiceCoverage";
 import { VehiclePuck } from "@/components/booking-flow/VehiclePuck";
 import { PackageQuestionsSheet } from "@/components/cars/PackageQuestionsSheet";
 import { DiagnosticOptionsSheet } from "@/components/booking/sheets/DiagnosticOptionsSheet";
@@ -176,13 +179,23 @@ export default function CategoryDetailScreen() {
   //      so the user can't pick something unbookable here.
   const preSelectedShopId = useBookingStore((s) => s.preSelectedShopId);
   const toast = useToast();
-  const getShopById = useShopStore((s) => s.getShopById);
+  // Subscribe to the pinned shop OBJECT, not the stable `getShopById`
+  // (bug #404): with the getter as the only memo dep, the offered set was
+  // computed once — before hydration it was null ("everything allowed") and
+  // it never picked up a portal toggle afterwards. The shop row is replaced
+  // whenever useShopsFromConvex re-derives, so this follows both.
+  const pinnedShop = useShopStore((s) =>
+    preSelectedShopId ? s.shops[preSelectedShopId] : undefined,
+  );
+  const shopsHydrated = useShopStore((s) => s.shopIds.length > 0);
+  // Pinned but not in the store yet → loading, never "offers everything".
+  // Once the store has hydrated, a pinned shop that's still missing isn't
+  // bookable at all (shops.list drops it), so it offers nothing here.
+  const pinnedShopLoading = !!preSelectedShopId && !pinnedShop && !shopsHydrated;
   const shopServiceIdSet = useMemo(() => {
     if (!preSelectedShopId) return null;
-    const shop = getShopById(preSelectedShopId);
-    if (!shop) return null;
-    return new Set(shop.serviceIds);
-  }, [preSelectedShopId, getShopById]);
+    return new Set(pinnedShop?.serviceIds ?? []);
+  }, [preSelectedShopId, pinnedShop]);
 
   const handleContinue = useCallback(() => {
     if (!hasConsistentBasketVehicle({
@@ -195,6 +208,18 @@ export default function CategoryDetailScreen() {
         "Please select services for one vehicle before continuing.",
       );
       return;
+    }
+
+    // Services picked before the shop was pinned (or before it switched one
+    // off) would ride straight to its date picker — drop them and say which
+    // (bug #404). An emptied cart stays here to pick something it offers.
+    if (preSelectedShopId) {
+      const cart = dropServicesShopDoesntOffer(preSelectedShopId);
+      if (cart.status === "checked" && cart.droppedNames.length > 0) {
+        const copy = droppedServicesToast(cart.shopName, cart.droppedNames);
+        toast.warning(copy.title, copy.body);
+        if (cart.remainingCount === 0) return;
+      }
     }
 
     routeToNextBookingStep(router, preSelectedShopId);
@@ -398,15 +423,16 @@ export default function CategoryDetailScreen() {
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     // Shop-pinned flow: hide services the picked shop doesn't cover
     // so the user can't pick something they won't be able to book.
-    // Guard on serviceIds.length > 0 — an empty array usually means
-    // the shop's catalog hasn't been hydrated yet, NOT that it
-    // offers nothing. Filtering on an empty set would hide
-    // everything and brick the screen.
-    if (shopServiceIdSet && shopServiceIdSet.size > 0) {
+    // An unhydrated shop renders as loading (spinner below) rather than
+    // failing open to the whole catalog (bug #404). A hydrated shop's
+    // serviceIds comes from the same query as the shop row itself, so
+    // an empty set there really does mean "offers nothing".
+    if (pinnedShopLoading) return [] as Service[];
+    if (shopServiceIdSet) {
       list = list.filter((s) => shopServiceIdSet.has(s.id));
     }
     return list;
-  }, [tabKey, availableServices, selectedVehicle, engineSpecs, shopServiceIdSet]);
+  }, [tabKey, availableServices, selectedVehicle, engineSpecs, shopServiceIdSet, pinnedShopLoading]);
 
   // Bookable list — what renders in the main list. Intersects the
   // base with `applicableIds` from the coverage query (which already
@@ -754,7 +780,11 @@ export default function CategoryDetailScreen() {
                 );
               })}
 
-              {filteredServices.length === 0 ? (
+              {pinnedShopLoading ? (
+                <View style={styles.empty}>
+                  <ActivityIndicator color="#9CA3AF" />
+                </View>
+              ) : filteredServices.length === 0 ? (
                 <View style={styles.empty}>
                   <Text size="md" weight="medium" color="#9CA3AF" center>
                     No services available for this tab right now.

@@ -49,6 +49,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { Booking } from "@/components/bookings/BookingCard";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { formatBookingError } from "@/convex/lib/bookingErrors";
 
 type Step = "mechanic" | "shop";
 
@@ -273,14 +274,15 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
         toast.success("Thanks for the review", undefined, { icon: Star });
       } catch (err) {
         // Surface a clean line instead of the raw Convex stack. Our own
-        // client-side throws above are already user-friendly; only the
-        // server errors need translating.
-        const raw = err instanceof Error ? err.message : "";
-        const friendly = /already been reviewed/i.test(raw)
+        // client-side throws above are already user-friendly; the shared
+        // formatter strips the wrapper off server errors (bug #394).
+        const message = formatBookingError(
+          err,
+          "Couldn't submit your review. Please try again.",
+        );
+        const friendly = /already been reviewed/i.test(message)
           ? "You've already reviewed this booking."
-          : /\[CONVEX|Server Error|at handler/i.test(raw)
-            ? "Couldn't submit your review. Please try again."
-            : raw || "Couldn't submit review.";
+          : message;
         setError(friendly);
       } finally {
         setSubmitting(false);

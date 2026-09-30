@@ -34,6 +34,8 @@ import { MoveRight, Star, Car, CalendarX } from 'lucide-react-native';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { useMutationWithToast } from '@/hooks/useMutationWithToast';
+import { alreadyClosedCancelCopy } from '@/lib/error-ui';
+import { formatFeeCents } from '@/constants/bookingActionPolicy';
 import { useToast } from '@/hooks/useToast';
 import { useOemServiceIntervalsBatch } from '@/hooks/useOemServiceIntervals';
 
@@ -1251,21 +1253,36 @@ export default function HomeScreen() {
   // get the cancelBooking mutation; tire-quote-prefixed local IDs are
   // out of scope here (those don't surface as upcoming on home).
   const cancelConvexBooking = useMutationWithToast(api.bookings.cancelBooking, {
-    success: "Booking cancelled.",
+    success: ({ result }) => {
+      // Someone else ended it first (bug #394): say who, never "Booking
+      // cancelled" or a fee for a cancel this tap didn't make.
+      const closed = alreadyClosedCancelCopy(result);
+      if (closed) return { title: closed, variant: "info" };
+      return {
+        title:
+          result && result.feeCents > 0
+            ? `Booking cancelled — ${formatFeeCents(result.feeCents)} fee charged.`
+            : "Booking cancelled.",
+      };
+    },
     successIcon: CalendarX,
-    error: "Couldn't cancel this booking. Try again.",
+    // FEE_CHANGED / JOB_ALREADY_STARTED / VEHICLE_CHECKED_IN carry their own
+    // sentence; BookingCard re-opens the confirm at the new fee on FEE_CHANGED.
+    error: (ctx) => ({ title: ctx.message }),
+    errorFallback: "Couldn't cancel this booking. Try again.",
   });
   const handleAppointmentCancel = useCallback(
     (bookingId: string, feeAcknowledgedCents?: number) => {
       const isLocalId = bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_");
-      if (!isLocalId) {
-        // Forward the late-cancel fee BookingCard disclosed so the server's
-        // stale-fee guard can reject if the fee rose past what was shown.
-        void cancelConvexBooking({
-          bookingId: bookingId as Id<"bookings">,
-          feeAcknowledgedCents,
-        });
-      }
+      if (isLocalId) return undefined;
+      // Forward the late-cancel fee BookingCard disclosed so the server's
+      // stale-fee guard can reject if the fee rose past what was shown. The
+      // promise is returned so BookingCard can await it (reset its dim, and
+      // re-confirm on FEE_CHANGED); BookingCard catches the rejection.
+      return cancelConvexBooking({
+        bookingId: bookingId as Id<"bookings">,
+        feeAcknowledgedCents,
+      });
     },
     [cancelConvexBooking],
   );

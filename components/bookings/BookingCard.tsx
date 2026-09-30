@@ -57,8 +57,11 @@ import { isBookingActionAllowed } from '@/lib/connection/offlineBookingActions';
 import { OfflineActionsNotice } from '@/components/connection/OfflineActionsNotice';
 import { useRescheduleDecisionOverlayStore } from '@/stores/useRescheduleDecisionOverlayStore';
 import { useBookingActions } from '@/hooks/useBookingActions';
-import { buildCancelCopy } from '@/constants/bookingActionPolicy';
+import { buildCancelCopy, isLocalBookingId } from '@/constants/bookingActionPolicy';
+import { useQuery } from 'convex/react';
+import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
+import { readBookingError } from '@/convex/lib/bookingErrors';
 import { SemanticColors } from '@/constants/theme';
 import { titleCaseVehicleName as titleCase } from '@/lib/vehicleName';
 
@@ -160,12 +163,24 @@ export interface Booking {
   cancellationReasonLabel?: string;
 }
 
+/** The fields of `api.bookings.cancelBooking`'s result the card reads. */
+export interface CancelBookingOutcome {
+  alreadyClosed?: boolean;
+  status?: string;
+}
+
 export interface BookingCardProps {
   booking: Booking;
   variant: 'upcoming' | 'history';
   onViewDetails?: (bookingId: string) => void;
-  /** feeAcknowledgedCents = the late-cancel fee shown to the customer, if any. */
-  onCancelBooking?: (bookingId: string, feeAcknowledgedCents?: number) => void;
+  /** feeAcknowledgedCents = the late-cancel fee shown to the customer, if any.
+   *  Return the mutation promise so the card can undo its optimistic
+   *  "cancelling" dim when the cancel fails or someone else already closed
+   *  the booking (bug #394). Rejects with the original Convex error. */
+  onCancelBooking?: (
+    bookingId: string,
+    feeAcknowledgedCents?: number,
+  ) => void | Promise<CancelBookingOutcome | void>;
   onReschedule?: (bookingId: string) => void;
   /** vehicle_at_shop "Request to cancel & pick up car" — notifies the shop. */
   onRequestPickup?: (bookingId: string) => void;
@@ -437,6 +452,17 @@ export function BookingCard({
   // and what a cancellation costs. Shared with BookingDetailsSheet so gating
   // is identical everywhere.
   const actions = useBookingActions(booking.id, booking.status);
+  // Why Reschedule is off, in the mutation's own words (bug #403). Read
+  // directly because useBookingActions doesn't carry it; Convex dedupes the
+  // identical subscription. It covers a job clock that already started while
+  // the status still reads `confirmed`, which the phase model can't see.
+  const serverActions = useQuery(
+    api.bookings.getCustomerBookingActions,
+    variant === 'upcoming' && booking.id && !isLocalBookingId(booking.id)
+      ? { bookingId: booking.id as Id<'bookings'> }
+      : 'skip',
+  );
+  const rescheduleBlockedReason = serverActions?.rescheduleBlockedReason ?? null;
   const primaryBtnRef = useRef<RNView | null>(null);
   const [actionsRowWidth, setActionsRowWidth] = useState(0);
   // Local "just cancelled" state. The card swaps the badge + dims for ~450ms
@@ -549,6 +575,55 @@ export function BookingCard({
   const pickupAlreadyRequested =
     actions.cancelKind === 'request_shop' && booking.pickupRequestedAtMs != null;
 
+  // Undo the optimistic "cancelled" dim — the cancel failed, or someone else
+  // closed the booking first and it didn't end up cancelled (bug #394).
+  const resetCancelling = () => {
+    setIsCancelling(false);
+    dim.value = withTiming(1, { duration: 200 });
+  };
+
+  // `feeCents` overrides the policy fee when the server said it changed
+  // (FEE_CHANGED) so the re-opened confirm discloses the new amount.
+  const confirmCancel = (feeCents: number) => {
+    const copy = buildCancelCopy({ ...actions, feeCentsIfCancelledNow: feeCents });
+    Alert.alert(copy.title, copy.body, [
+      { text: 'Keep It', style: 'cancel' },
+      {
+        text: copy.confirmLabel,
+        style: 'destructive',
+        onPress: () => {
+          // Show the in-card "cancelled" visual first, THEN fire the
+          // mutation. The data-source removal triggers FadeOut, and
+          // sibling cards shift smoothly via layout transition. The promise
+          // is awaited so a failure (or an already-closed booking) resets
+          // the dim instead of leaving the row greyed out.
+          setIsCancelling(true);
+          setTimeout(() => {
+            void (async () => {
+              try {
+                const outcome = await onCancelBooking?.(booking.id, feeCents);
+                if (
+                  outcome &&
+                  outcome.alreadyClosed &&
+                  outcome.status !== 'cancelled'
+                ) {
+                  resetCancelling();
+                }
+              } catch (err) {
+                // The parent already toasted the message.
+                resetCancelling();
+                const data = readBookingError(err);
+                if (data?.code === 'FEE_CHANGED' && typeof data.currentCents === 'number') {
+                  confirmCancel(data.currentCents);
+                }
+              }
+            })();
+          }, 450);
+        },
+      },
+    ]);
+  };
+
   const handleCancelBooking = () => {
     if (isCancelling) return;
     const copy = buildCancelCopy(actions);
@@ -565,26 +640,19 @@ export function BookingCard({
 
     // Free or late-fee cancel. The fee (when any) is disclosed in the body +
     // confirm label so it's unmissable before we charge.
-    Alert.alert(copy.title, copy.body, [
-      { text: 'Keep It', style: 'cancel' },
-      {
-        text: copy.confirmLabel,
-        style: 'destructive',
-        onPress: () => {
-          // Show the in-card "cancelled" visual first, THEN fire the
-          // mutation. The data-source removal triggers FadeOut, and
-          // sibling cards shift smoothly via layout transition.
-          setIsCancelling(true);
-          setTimeout(
-            () => onCancelBooking?.(booking.id, actions.feeCentsIfCancelledNow),
-            450,
-          );
-        },
-      },
-    ]);
+    confirmCancel(actions.feeCentsIfCancelledNow);
   };
 
   const handleReschedule = () => {
+    // The server says a move would be refused (work started / car checked in
+    // / booking ended): say why and offer the shop instead (bug #403).
+    if (rescheduleBlockedReason) {
+      Alert.alert("Can't reschedule", rescheduleBlockedReason.message, [
+        { text: 'Not now', style: 'cancel' },
+        { text: 'Message the shop', onPress: () => onMessageShop?.(booking.id) },
+      ]);
+      return;
+    }
     // Over the free limit / inside cutoff / car already at shop → the customer
     // can't self-reschedule; route them to the shop instead.
     if (actions.rescheduleKind !== 'free') {
@@ -1126,7 +1194,7 @@ export function BookingCard({
                       lineHeight={1.2}
                       style={styles.actionButtonLabel}
                     >
-                      {actions.rescheduleKind === 'free'
+                      {actions.rescheduleKind === 'free' && !rescheduleBlockedReason
                         ? 'Reschedule'
                         : 'Contact shop'}
                     </Text>

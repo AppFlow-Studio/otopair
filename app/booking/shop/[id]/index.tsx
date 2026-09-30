@@ -39,6 +39,10 @@ import { ShopMechanicsSection } from "@/components/booking/ShopMechanicsSection"
 import { ShopHeroCard } from "@/components/shop/ShopHeroCard";
 
 // 5. Constants, hooks, types, stores
+import { useToast } from "@/hooks/useToast";
+import { dropServicesShopDoesntOffer } from "@/lib/pinnedShopCart";
+import { releaseHeldSlot } from "@/lib/releaseHeldSlot";
+import { droppedServicesToast } from "@/lib/shopServiceCoverage";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useSearchStore } from "@/stores/useSearchStore";
 import { useShopStore } from "@/stores/useShopStore";
@@ -65,6 +69,7 @@ export default function ShopDetailScreen() {
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
   const setPreSelectedShop = useBookingStore((state) => state.setPreSelectedShop);
   const addRecentShop = useSearchStore((state) => state.addRecentShop);
+  const toast = useToast();
 
   // ═══════════════ COMPUTED VALUES ═══════════════
   const shopId = id && typeof id === "string" ? id : null;
@@ -94,7 +99,9 @@ export default function ShopDetailScreen() {
     const hasActiveCart = selectedServiceIds.length > 0;
     if (bookingStage !== "mechanic_selection" && !hasActiveCart) {
       // We came from map carousel or other source with no cart in
-      // flight — safe to reset the booking flow.
+      // flight — safe to reset the booking flow. Release a live slot hold
+      // first — the reset drops its id (bug #393).
+      releaseHeldSlot();
       resetBookingFlow();
     }
     // Navigate back to previous screen (respects navigation history)
@@ -189,9 +196,19 @@ export default function ShopDetailScreen() {
     // longer open it — both flow through the new (booking-flow)
     // stack now.
     if (!shop) return;
+    // A cart built before landing here may hold services this shop doesn't
+    // offer (bug #404) — pinning it would carry them to checkout, where the
+    // server now refuses them. Take them out now and say which ones.
+    if (useBookingStore.getState().selectedServiceIds.length > 0) {
+      const cart = dropServicesShopDoesntOffer(shop.id);
+      if (cart.status === "checked" && cart.droppedNames.length > 0) {
+        const copy = droppedServicesToast(cart.shopName, cart.droppedNames);
+        toast.warning(copy.title, copy.body);
+      }
+    }
     setPreSelectedShop(shop.id);
     router.replace("/(booking-flow)/select-services");
-  }, [router, setPreSelectedShop, shop]);
+  }, [router, setPreSelectedShop, shop, toast]);
 
   return (
     <FullScreenContainer style={styles.container}>

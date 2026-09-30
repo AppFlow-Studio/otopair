@@ -77,6 +77,8 @@ import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { buildShopPriceLabel } from "@/lib/shopPriceLabel";
+import { doesntOfferLabel, joinServiceNames, serviceNamesFor, servicesShopDoesntOffer } from "@/lib/shopServiceCoverage";
+import { formatBookingError, readBookingError } from "@/convex/lib/bookingErrors";
 import { weekdayLongFromISO } from "@/utils/timeSlotUtils";
 import { useCoachAnchor } from "@/components/coach/useCoachAnchor";
 
@@ -113,11 +115,17 @@ type HoldSlotArgs = {
   duration_minutes: number;
   session_id: string;
   held_by?: Id<"users">;
+  /** Liveness lease (bug #393): the hold lapses ~90s after the checkout
+   *  stops heart-beating (payment/confirming touch it), instead of blocking
+   *  the slot for the full TTL when the app is killed. */
+  lease?: boolean;
 };
 type HoldSlotResult = {
   holdId: Id<"slot_holds"> | null;
   mechanicId: Id<"mechanics"> | null;
   expiresAt: number | null;
+  /** Director-TTL cap on a leased hold (heartbeats can't extend past it). */
+  hardExpiresAt?: number | null;
   disabled?: boolean;
 };
 const holdSlotRef = api.slotHolds.holdSlot as FunctionReference<
@@ -241,7 +249,6 @@ export default function ChooseMechanicScreen() {
   // fresh while offline with no hydrated shops → CantLoadModal sends the
   // user back; if shops are already cached, the pill alone is enough.
   useOfflineGuard(shopsLoading ? undefined : nearbyResults);
-  const getShopById = useShopStore((s) => s.getShopById);
   const userLocationForDistance = useBookingStore((s) => s.userLocation);
 
   // When the user entered via the shop-detail Book CTA, the booking
@@ -258,6 +265,12 @@ export default function ChooseMechanicScreen() {
   //      userLocation so the pinned shop still surfaces, then
   //      append the regular nearby list behind it.
   const KM_PER_MI = 1.609344;
+  // Subscribe to the pinned shop object itself so its coverage re-derives
+  // when shop_services changes (a portal toggle), not just when the nearby
+  // list happens to change (bug #404).
+  const pinnedShop = useShopStore((s) =>
+    preSelectedShopId ? s.shops[preSelectedShopId] : undefined,
+  );
   const nearbyShops = useMemo(() => {
     if (!preSelectedShopId) return nearbyResults;
     const matchInNearby = nearbyResults.find((r) => r.shop.id === preSelectedShopId);
@@ -266,7 +279,7 @@ export default function ChooseMechanicScreen() {
       const rest = nearbyResults.filter((r) => r.shop.id !== preSelectedShopId);
       return [matchInNearby, ...rest];
     }
-    const shop = getShopById(preSelectedShopId);
+    const shop = pinnedShop;
     if (!shop) return nearbyResults;
     const km =
       userLocationForDistance && shop.latitude !== 0 && shop.longitude !== 0
@@ -275,17 +288,17 @@ export default function ChooseMechanicScreen() {
             { latitude: shop.latitude, longitude: shop.longitude },
           )
         : null;
-    const coversAll =
-      selectedServiceIds.length === 0
-        ? true
-        : selectedServiceIds.every((sid) => shop.serviceIds.includes(sid));
+    // The pinned shop used to be surfaced whatever it offered (bug #404);
+    // now it carries its gaps like every other page so the CTA can refuse it.
+    const missingServiceIds = servicesShopDoesntOffer(shop, selectedServiceIds) ?? [];
     const synthesized = {
       shop,
       distanceMi: km != null ? km / KM_PER_MI : 0,
-      coversAll,
+      coversAll: missingServiceIds.length === 0,
+      missingServiceIds,
     };
     return [synthesized, ...nearbyResults];
-  }, [nearbyResults, preSelectedShopId, getShopById, userLocationForDistance, selectedServiceIds]);
+  }, [nearbyResults, preSelectedShopId, pinnedShop, userLocationForDistance, selectedServiceIds]);
 
   // Active page index = which shop the user is currently viewing.
   const [activeIndex, setActiveIndex] = useState(0);
@@ -367,6 +380,17 @@ export default function ChooseMechanicScreen() {
   // per-mechanic CTA label lives in `bookCtaLabel` (computed once the active
   // shop's earliest slot resolves, below).
   const hasServices = selectedServiceIds.length > 0;
+
+  // Coverage gate (bug #404): a shop that doesn't offer every service in the
+  // cart can still be browsed, but its Book CTA reads "Doesn't offer …" and
+  // neither the earliest-slot fast path nor the calendar will start a
+  // checkout there — the server would refuse it at Pay anyway.
+  const activeMissingIds = nearbyShops[activeIndex]?.missingServiceIds;
+  const activeMissingNames = useMemo(
+    () => serviceNamesFor(activeMissingIds ?? [], availableServices),
+    [activeMissingIds, availableServices],
+  );
+  const activeShopBlocked = hasServices && activeMissingNames.length > 0;
 
   // Map setup. We mount a LOCAL MapView as a direct child of this
   // screen (see render below) instead of driving the shared
@@ -639,12 +663,13 @@ export default function ChooseMechanicScreen() {
   const activeEarliestSlot = activeEarliestSlots[0] ?? null;
   const bookCtaLabel = useMemo(() => {
     if (!hasServices) return "Select services";
+    if (activeShopBlocked) return doesntOfferLabel(activeMissingNames);
     if (!activeEarliestSlot) return "See available times";
     const day = activeEarliestSlot.scheduledDate
       ? weekdayLongFromISO(activeEarliestSlot.scheduledDate)
       : activeEarliestSlot.dayOfWeek;
     return `Book ${day} ${activeEarliestSlot.time}`;
-  }, [hasServices, activeEarliestSlot]);
+  }, [hasServices, activeShopBlocked, activeMissingNames, activeEarliestSlot]);
 
   const activeDistanceMi = nearbyShops[activeIndex]?.distanceMi ?? 0;
 
@@ -679,8 +704,20 @@ export default function ChooseMechanicScreen() {
 
   // Calendar icon → the full "Pick a date & time" screen (manual scheduling),
   // seeded with the active shop + current mechanic choice.
+  const warnShopDoesntOffer = useCallback(() => {
+    if (!activeShop) return;
+    toast.error(
+      `${activeShop.name} doesn't offer ${joinServiceNames(activeMissingNames)}`,
+      "Swipe to another shop, or remove it from your booking.",
+    );
+  }, [activeShop, activeMissingNames, toast]);
+
   const onOpenCalendar = useCallback(() => {
     if (!activeShop) return;
+    if (activeShopBlocked) {
+      warnShopDoesntOffer();
+      return;
+    }
     router.push({
       pathname: "/(booking-flow)/pick-datetime",
       params: {
@@ -688,7 +725,7 @@ export default function ChooseMechanicScreen() {
         mechanicId: selectedMechanicId ?? "",
       },
     });
-  }, [router, activeShop, selectedMechanicId]);
+  }, [router, activeShop, activeShopBlocked, warnShopDoesntOffer, selectedMechanicId]);
 
   // Big CTA → book the earliest slot and go STRAIGHT to Review & Pay, skipping
   // the calendar entirely. We hold the slot + seed the booking store here (the
@@ -699,6 +736,10 @@ export default function ChooseMechanicScreen() {
   // manual calendar. On a hold conflict (slot just taken) → toast + calendar.
   const onBookEarliest = useCallback(async () => {
     if (!activeShop) return;
+    if (activeShopBlocked) {
+      warnShopDoesntOffer();
+      return;
+    }
     const slot = activeEarliestSlot;
     if (!slot || !slot.scheduledDate || !slot.scheduledTime) {
       onOpenCalendar();
@@ -728,19 +769,46 @@ export default function ChooseMechanicScreen() {
       duration_minutes: holdDurationMinutes,
       session_id: sessionId,
       held_by: userId ?? undefined,
+      // Opt into the liveness lease (bug #393) so a killed app's hold stops
+      // blocking the shop's slot within ~90s. payment/confirming heartbeat it.
+      lease: true,
     };
-    let res: Awaited<ReturnType<typeof holdSlot>>;
+    let res: HoldSlotResult | null = null;
+    let holdError: unknown = null;
     try {
       res = await holdSlot(holdArgs);
-    } catch {
+    } catch (err) {
+      holdError = err;
+    }
+    if (holdError !== null) {
       setIsBookingEarliest(false);
-      toast.error("That time was just taken", "Pick another slot to continue.");
+      // holdSlot now throws SLOT_UNAVAILABLE with the server's own sentence;
+      // anything else keeps the old copy via the shared formatter.
+      const holdCode = readBookingError(holdError)?.code;
+      toast.error(
+        !holdCode || holdCode === "SLOT_UNAVAILABLE"
+          ? "That time was just taken"
+          : "Couldn't hold that time",
+        formatBookingError(holdError, "Pick another slot to continue."),
+      );
       onOpenCalendar();
       return;
     }
     setSlotHold(
       res?.holdId && res.expiresAt != null
-        ? { holdId: res.holdId, expiresAt: res.expiresAt }
+        ? {
+            holdId: res.holdId,
+            expiresAt: res.expiresAt,
+            hardExpiresAt: res.hardExpiresAt ?? null,
+            // What the checkout heartbeat re-holds if the lease lapses.
+            spec: {
+              shopId: activeShop.id,
+              mechanicId: bookMechanicId ?? null,
+              date: scheduledDate,
+              startTime: startHHMM,
+              durationMinutes: holdDurationMinutes,
+            },
+          }
         : null,
     );
 
@@ -776,6 +844,8 @@ export default function ChooseMechanicScreen() {
     });
   }, [
     activeShop,
+    activeShopBlocked,
+    warnShopDoesntOffer,
     activeEarliestSlot,
     selectedMechanicId,
     isBookingEarliest,
@@ -831,11 +901,14 @@ export default function ChooseMechanicScreen() {
                 <Calendar size={22} color="#1F2937" strokeWidth={2} />
               </Pressable>
               <Pressable
-                style={styles.bookPill}
+                style={[styles.bookPill, activeShopBlocked && styles.bookPillBlocked]}
                 onPress={() => void onBookEarliest()}
-                disabled={isBookingEarliest}
+                disabled={isBookingEarliest || activeShopBlocked}
                 accessibilityRole="button"
-                accessibilityState={{ disabled: isBookingEarliest, busy: isBookingEarliest }}
+                accessibilityState={{
+                  disabled: isBookingEarliest || activeShopBlocked,
+                  busy: isBookingEarliest,
+                }}
                 accessibilityLabel={bookCtaLabel}
               >
                 {isBookingEarliest ? (
@@ -862,7 +935,15 @@ export default function ChooseMechanicScreen() {
     ),
     // Handlers/labels are recreated each render; the footer is cheap to
     // re-render, so we intentionally rebuild it when they change.
-    [hasServices, bookCtaLabel, isBookingEarliest, onSelectServices, onOpenCalendar, onBookEarliest],
+    [
+      hasServices,
+      bookCtaLabel,
+      isBookingEarliest,
+      activeShopBlocked,
+      onSelectServices,
+      onOpenCalendar,
+      onBookEarliest,
+    ],
   );
 
   return (
@@ -1308,6 +1389,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
     borderRadius: 999,
     backgroundColor: "#5299FE",
+  },
+  // Shop doesn't offer everything in the cart (bug #404) — the label says
+  // what's missing; the muted fill says it won't book.
+  bookPillBlocked: {
+    backgroundColor: "#9CA3AF",
   },
   empty: {
     paddingVertical: 40,

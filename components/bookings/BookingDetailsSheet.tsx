@@ -56,6 +56,8 @@ import { isBookingActionAllowed } from "@/lib/connection/offlineBookingActions";
 import { OfflineActionsNotice } from "@/components/connection/OfflineActionsNotice";
 import { useToast } from "@/hooks/useToast";
 import { useMutationWithToast } from "@/hooks/useMutationWithToast";
+import { alreadyClosedCancelCopy } from "@/lib/error-ui";
+import { formatBookingError, readBookingError } from "@/convex/lib/bookingErrors";
 import { useBookingActions } from "@/hooks/useBookingActions";
 import { useShopTicketsForBooking } from "@/hooks/useShopTicketsFromConvex";
 import { buildCancelCopy, isLocalBookingId } from "@/constants/bookingActionPolicy";
@@ -63,7 +65,19 @@ import { buildBookingCalendarEvent, formatBookingReference } from "@/lib/booking
 import { useBookingStore } from "@/stores/useBookingStore";
 import type { Booking } from "./BookingCard";
 import { MessageShopSheet, type MessageShopSheetRef } from "./MessageShopSheet";
-import { RescheduleSheet, type RescheduleSheetRef } from "./RescheduleSheet";
+import {
+  RescheduleSheet,
+  type RescheduleConfirmOutcome,
+  type RescheduleSheetRef,
+} from "./RescheduleSheet";
+
+/** What the customer saw when they opened the picker — sent with the
+ *  reschedule so a booking that moved underneath is refused (bug #403). */
+type RescheduleExpected = {
+  status?: string;
+  scheduledDate?: string;
+  scheduledTime?: string;
+};
 import { ApprovalBanner } from "@/components/booking/ApprovalBanner";
 import { PaymentBreakdown } from "@/components/booking/PaymentBreakdown";
 import { ReceiptViewer } from "@/components/booking/ReceiptViewer";
@@ -347,9 +361,12 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
     // Set by open({ openChat: true }); consumed once the enter animation has
     // presented this Modal, so the chat Modal doesn't race it (see effect).
     const pendingOpenChatRef = useRef(false);
+    // Snapshot of status/date/time taken when the picker opened (bug #403).
+    const rescheduleExpectedRef = useRef<RescheduleExpected | null>(null);
 
     const handleRequestReschedule = useCallback(
-      (bookingId: string, date: string, time: string) => {
+      (bookingId: string, date: string, time: string, expected?: RescheduleExpected) => {
+        rescheduleExpectedRef.current = expected ?? null;
         rescheduleSheetRef.current?.open(bookingId, { date, time });
       },
       [],
@@ -451,31 +468,81 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
 
     // Customer reschedule → a request the shop confirms (booking moves to
     // pending_shop_acceptance). Local-only bookings keep the store path.
+    // Errors are routed by code below (picker stays open / Message the shop /
+    // close), so the hook shows only the success toast.
     const requestReschedule = useMutationWithToast(
       api.bookings.customerRequestReschedule,
       {
         success: "Reschedule requested — awaiting shop.",
-        error: (ctx) => ({
-          title: ctx.error.message || "Couldn't request a reschedule. Try again.",
-        }),
       },
     );
+    const toast = useToast();
 
     const handleConfirmReschedule = useCallback(
-      (bookingId: string, newDate: string, newTime: string) => {
+      async (
+        bookingId: string,
+        newDate: string,
+        newTime: string,
+        newTime24: string,
+      ): Promise<RescheduleConfirmOutcome> => {
         if (isLocalBookingId(bookingId)) {
           useBookingStore.getState().rescheduleBooking(bookingId, newDate, newTime);
-        } else {
-          void requestReschedule({
+          close();
+          return;
+        }
+        const expected = rescheduleExpectedRef.current;
+        try {
+          // Awaited: the picker (and this sheet) close only once the shop
+          // has the request, so a refusal can't masquerade as success.
+          await requestReschedule({
             bookingId: bookingId as Id<"bookings">,
             newScheduledDate: newDate,
-            newScheduledTime: newTime,
+            // The server stores "HH:MM"; the old "9:00 AM" reached the DB
+            // verbatim (bug #403). Server also normalizes, but send it right.
+            newScheduledTime: newTime24,
+            expectedStatus: expected?.status || undefined,
+            expectedScheduledDate: expected?.scheduledDate || undefined,
+            expectedScheduledTime: expected?.scheduledTime || undefined,
           });
+        } catch (err) {
+          const data = readBookingError(err);
+          const message = formatBookingError(
+            err,
+            "Couldn't request a reschedule. Try again.",
+          );
+          switch (data?.code) {
+            case "SLOT_UNAVAILABLE":
+            case "OUTSIDE_SHOP_HOURS":
+            case "INVALID_TIME":
+              // The time was refused, not the reschedule — pick another.
+              return { error: message };
+            case "JOB_ALREADY_STARTED":
+            case "VEHICLE_CHECKED_IN":
+            case "RESCHEDULE_LIMIT_REACHED":
+              // Picking another time won't help; the shop can.
+              rescheduleSheetRef.current?.close();
+              Alert.alert("Can't reschedule", message, [
+                { text: "Not now", style: "cancel" },
+                { text: "Message the shop", onPress: () => handleOpenChat() },
+              ]);
+              return;
+            case "BOOKING_STATE_CHANGED":
+            case "BOOKING_ALREADY_CANCELLED":
+            case "BOOKING_NOT_FOUND":
+              // The view was stale: close it; the reactive list shows the
+              // booking as it is now.
+              rescheduleSheetRef.current?.close();
+              toast.info(message);
+              close();
+              return;
+            default:
+              return { error: message };
+          }
         }
         // Close the detail sheet so the updated booking is immediately visible in the list.
         close();
       },
-      [close, requestReschedule],
+      [close, handleOpenChat, requestReschedule, toast],
     );
 
     useImperativeHandle(ref, () => ({ open, close }));
@@ -1100,7 +1167,12 @@ interface FullContentProps {
   activityLog?: ActivityEvent[];
   bookingDetail?: any;
   onClose: () => void;
-  onRequestReschedule: (bookingId: string, date: string, time: string) => void;
+  onRequestReschedule: (
+    bookingId: string,
+    date: string,
+    time: string,
+    expected?: RescheduleExpected,
+  ) => void;
   onOpenChat: () => void;
   bottomPadding: number;
 }
@@ -1127,20 +1199,32 @@ function FullContent({
   // Phase policy — same source of truth as BookingCard, so the sheet and the
   // card allow exactly the same actions and disclose the same fee.
   const actions = useBookingActions(booking.id, booking.status);
+  // Why Reschedule is off, in the mutation's own words (bug #403). Read
+  // directly because useBookingActions doesn't carry it; Convex dedupes the
+  // identical subscription.
+  const serverActions = useQuery(
+    api.bookings.getCustomerBookingActions,
+    isLocalBookingId(booking.id) ? "skip" : { bookingId: booking.id as Id<"bookings"> },
+  );
+  const rescheduleBlockedReason = serverActions?.rescheduleBlockedReason ?? null;
   const cancelBooking = useMutationWithToast(api.bookings.cancelBooking, {
-    success: "Booking cancelled.",
+    success: ({ result }) => {
+      // Someone else ended it first (bug #394): say who, never "Booking
+      // cancelled" or a fee for a cancel this tap didn't make.
+      const closed = alreadyClosedCancelCopy(result);
+      if (closed) return { title: closed, variant: "info" };
+      return { title: "Booking cancelled." };
+    },
     successIcon: CalendarX,
-    error: (ctx) => ({
-      title: ctx.error.message || "Couldn't cancel this booking. Try again.",
-    }),
+    error: (ctx) => ({ title: ctx.message }),
+    errorFallback: "Couldn't cancel this booking. Try again.",
   });
   const requestPickup = useMutationWithToast(
     api.bookings.requestCancellationAtShop,
     {
       success: "Pickup request sent. The shop will confirm.",
-      error: (ctx) => ({
-        title: ctx.error.message || "Couldn't send your request. Try again.",
-      }),
+      error: (ctx) => ({ title: ctx.message }),
+      errorFallback: "Couldn't send your request. Try again.",
     },
   );
   // Offline gate: Reschedule/Cancel are the same backend writes the booking
@@ -1159,7 +1243,9 @@ function FullContent({
           text: copy.confirmLabel,
           onPress: () => {
             if (!isLocalBookingId(booking.id)) {
-              void requestPickup({ bookingId: booking.id as Id<"bookings"> });
+              // Failure is toasted by the hook; the catch only keeps the
+              // dropped promise from becoming an unhandled rejection.
+              requestPickup({ bookingId: booking.id as Id<"bookings"> }).catch(() => {});
             }
             onClose();
           },
@@ -1169,31 +1255,45 @@ function FullContent({
     }
 
     // Free or late-fee cancel. The fee (when any) is disclosed in the body +
-    // confirm label so it's unmissable before we charge.
-    Alert.alert(copy.title, copy.body, [
-      { text: "Keep booking", style: "cancel" },
-      {
-        text: copy.confirmLabel,
-        style: "destructive",
-        onPress: () => {
-          if (isLocalBookingId(booking.id)) {
-            useBookingStore.getState().cancelBooking(booking.id);
-            toast.success("Booking cancelled.", undefined, { icon: CalendarX });
-          } else {
-            void cancelBooking({
+    // confirm label so it's unmissable before we charge. `feeCents` is the
+    // amount disclosed; FEE_CHANGED re-opens this confirm at the server's
+    // new fee instead of charging more than was shown (bug #394).
+    const confirmCancel = (feeCents: number) => {
+      const feeCopy = buildCancelCopy({ ...actions, feeCentsIfCancelledNow: feeCents });
+      Alert.alert(feeCopy.title, feeCopy.body, [
+        { text: "Keep booking", style: "cancel" },
+        {
+          text: feeCopy.confirmLabel,
+          style: "destructive",
+          onPress: () => {
+            if (isLocalBookingId(booking.id)) {
+              useBookingStore.getState().cancelBooking(booking.id);
+              toast.success("Booking cancelled.", undefined, { icon: CalendarX });
+              onClose();
+              return;
+            }
+            onClose();
+            cancelBooking({
               bookingId: booking.id as Id<"bookings">,
-              feeAcknowledgedCents: actions.feeCentsIfCancelledNow,
+              feeAcknowledgedCents: feeCents,
+            }).catch((err: unknown) => {
+              // The hook already toasted the message.
+              const data = readBookingError(err);
+              if (data?.code === "FEE_CHANGED" && typeof data.currentCents === "number") {
+                confirmCancel(data.currentCents);
+              }
             });
-          }
-          onClose();
+          },
         },
-      },
-    ]);
+      ]);
+    };
+    confirmCancel(actions.feeCentsIfCancelledNow);
   }, [actions, booking.id, cancelBooking, requestPickup, onClose, toast]);
 
   const handleReschedule = useCallback(() => {
-    // Over the free limit / inside cutoff / car at shop → contact the shop.
-    if (actions.rescheduleKind !== "free") {
+    // Over the free limit / inside cutoff / car at shop / work started →
+    // contact the shop. The blocked reason is the server's own predicate.
+    if (actions.rescheduleKind !== "free" || rescheduleBlockedReason) {
       onOpenChat();
       return;
     }
@@ -1202,13 +1302,20 @@ function FullContent({
     const local = useBookingStore.getState().getBookingById(booking.id);
     const date = bookingDetail?.scheduledDate ?? local?.scheduledDate ?? "";
     const time = bookingDetail?.scheduledTime ?? local?.scheduledTime ?? "";
-    onRequestReschedule(booking.id, date, time);
+    // What the customer is looking at right now — the server refuses the
+    // move if the booking changed before they confirm (bug #403).
+    onRequestReschedule(booking.id, date, time, {
+      status: bookingDetail?.status ?? undefined,
+      scheduledDate: bookingDetail?.scheduledDate ?? undefined,
+      scheduledTime: bookingDetail?.scheduledTime ?? undefined,
+    });
   }, [
     actions.rescheduleKind,
     booking.id,
     bookingDetail,
     onOpenChat,
     onRequestReschedule,
+    rescheduleBlockedReason,
   ]);
 
   const handleMessageShop = useCallback(() => {
@@ -1623,15 +1730,25 @@ function FullContent({
               </Text>
             </TouchableOpacity>
           ) : actions.canReschedule ? (
-            <TouchableOpacity
-              style={styles.rescheduleButton}
-              onPress={handleReschedule}
-              activeOpacity={0.85}
-            >
-              <Text size="md" weight="semiBold" color="#FFFFFF">
-                {actions.rescheduleKind === "free" ? "Reschedule" : "Contact shop"}
-              </Text>
-            </TouchableOpacity>
+            <>
+              {rescheduleBlockedReason ? (
+                // Why the time can't be changed here (bug #403).
+                <Text size="sm" color="#6B7280" style={styles.rescheduleBlockedText}>
+                  {rescheduleBlockedReason.message}
+                </Text>
+              ) : null}
+              <TouchableOpacity
+                style={styles.rescheduleButton}
+                onPress={handleReschedule}
+                activeOpacity={0.85}
+              >
+                <Text size="md" weight="semiBold" color="#FFFFFF">
+                  {actions.rescheduleKind === "free" && !rescheduleBlockedReason
+                    ? "Reschedule"
+                    : "Contact shop"}
+                </Text>
+              </TouchableOpacity>
+            </>
           ) : null}
           <TouchableOpacity
             style={styles.outlineButton}
@@ -2756,6 +2873,9 @@ const styles = StyleSheet.create({
   secondaryActions: {
     marginTop: 32,
     gap: 12,
+  },
+  rescheduleBlockedText: {
+    textAlign: "center",
   },
   outlineButton: {
     height: 52,

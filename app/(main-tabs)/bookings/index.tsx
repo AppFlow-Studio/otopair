@@ -47,6 +47,8 @@ import { useBookingsBadgeStore } from "@/stores/useBookingsBadgeStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { api } from "@/convex/_generated/api";
 import { useMutationWithToast } from "@/hooks/useMutationWithToast";
+import { alreadyClosedCancelCopy } from "@/lib/error-ui";
+import { formatBookingError } from "@/convex/lib/bookingErrors";
 import { useQuoteRequestAvailability } from "@/hooks/useQuoteRequestAvailability";
 import { formatFeeCents } from "@/constants/bookingActionPolicy";
 import { useToast } from "@/hooks/useToast";
@@ -226,23 +228,31 @@ export default function BookingsScreen() {
 
   const toast = useToast();
   const cancelConvexBooking = useMutationWithToast(api.bookings.cancelBooking, {
-    success: ({ result }) => ({
-      title:
-        result && result.feeCents > 0
-          ? `Booking cancelled — ${formatFeeCents(result.feeCents)} fee charged.`
-          : "Booking cancelled.",
-    }),
+    success: ({ result }) => {
+      // Someone else ended it first (bug #394): say who, never "cancelled"
+      // or "fee charged" for a cancel this tap didn't make.
+      const closed = alreadyClosedCancelCopy(result);
+      if (closed) return { title: closed, variant: "info" };
+      return {
+        title:
+          result && result.feeCents > 0
+            ? `Booking cancelled — ${formatFeeCents(result.feeCents)} fee charged.`
+            : "Booking cancelled.",
+      };
+    },
     successIcon: CalendarX,
-    error: (ctx) => ({
-      title: ctx.error.message || "Couldn't cancel this booking. Try again.",
-    }),
+    // FEE_CHANGED / JOB_ALREADY_STARTED / VEHICLE_CHECKED_IN carry their own
+    // sentence; BookingCard re-opens the confirm at the new fee on FEE_CHANGED.
+    error: (ctx) => ({ title: ctx.message }),
+    errorFallback: "Couldn't cancel this booking. Try again.",
   });
   const cancelQuoteRequest = useMutationWithToast(api.bookings.cancelBooking, {
+    // A quote request has no fee and no shop-side cancel to race, so the
+    // plain copy stands (tests/quoteRequestCancellationCopy pins it).
     success: "Quote request cancelled.",
     successIcon: CalendarX,
-    error: (ctx) => ({
-      title: ctx.error.message || "Couldn't cancel this quote request. Try again.",
-    }),
+    error: (ctx) => ({ title: ctx.message }),
+    errorFallback: "Couldn't cancel this quote request. Try again.",
   });
   const dismissExpiredQuoteRequest = (api.bookings as unknown as {
     dismissExpiredQuoteRequest: FunctionReference<
@@ -259,14 +269,18 @@ export default function BookingsScreen() {
     api.bookings.requestCancellationAtShop,
     {
       success: "Pickup request sent. The shop will confirm.",
-      error: (ctx) => ({
-        title: ctx.error.message || "Couldn't send your request. Try again.",
-      }),
+      error: (ctx) => ({ title: ctx.message }),
+      errorFallback: "Couldn't send your request. Try again.",
     },
   );
   useEffect(() => {
     if (typeof rescheduleError === "string" && rescheduleError.length > 0) {
-      toast.error("Couldn't request reschedule.", rescheduleError);
+      // The param is produced by another screen's catch; run it through the
+      // formatter so a raw Convex wrapper can never reach the toast (#394).
+      toast.error(
+        "Couldn't request reschedule.",
+        formatBookingError(rescheduleError, "Please try again in a moment."),
+      );
     }
   }, [rescheduleError, toast]);
   const handleCancelBooking = useCallback(
@@ -275,12 +289,14 @@ export default function BookingsScreen() {
       if (isLocalId) {
         cancelLocalBooking(bookingId);
         toast.success("Booking cancelled.", undefined, { icon: CalendarX });
-      } else {
-        await cancelConvexBooking({
-          bookingId: bookingId as Id<"bookings">,
-          feeAcknowledgedCents,
-        });
+        return undefined;
       }
+      // Returned (and rejections propagated) so BookingCard can reset its
+      // optimistic dim and re-open the confirm on FEE_CHANGED (bug #394).
+      return cancelConvexBooking({
+        bookingId: bookingId as Id<"bookings">,
+        feeAcknowledgedCents,
+      });
     },
     [cancelConvexBooking, cancelLocalBooking, toast],
   );
@@ -314,7 +330,9 @@ export default function BookingsScreen() {
       if (bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_")) {
         return;
       }
-      void requestPickupConvex({ bookingId: bookingId as Id<"bookings"> });
+      // The hook already toasted any failure; the catch only keeps the
+      // dropped promise from surfacing as an unhandled rejection.
+      requestPickupConvex({ bookingId: bookingId as Id<"bookings"> }).catch(() => {});
     },
     [requestPickupConvex],
   );

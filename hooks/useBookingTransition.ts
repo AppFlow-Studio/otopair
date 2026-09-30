@@ -24,6 +24,7 @@ import {
   getSheetContentTransition,
   getTopBarTransition,
 } from "@/constants/animations";
+import { releaseHeldSlot } from "@/lib/releaseHeldSlot";
 import { BookingStage } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useCallback } from "react";
@@ -158,6 +159,8 @@ export function useBookingTransition(): BookingTransitionResult {
   }, [currentStage, setBookingStage]);
 
   const reset = useCallback(() => {
+    // Release any live slot hold first — the reset drops its id (bug #393).
+    releaseHeldSlot();
     resetBookingFlow();
   }, [resetBookingFlow]);
 

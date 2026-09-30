@@ -68,6 +68,36 @@ import {
 } from "@/components/receipts/ReceiptContent";
 import { ReceiptSkeleton } from "@/components/receipts/ReceiptSkeleton";
 import { formatServiceDisplayNames } from "@/utils/serviceDisplayName";
+import {
+  formatBookingError,
+  readBookingError,
+  type BookingErrorData,
+} from "@/convex/lib/bookingErrors";
+import { alreadyClosedCancelCopy } from "@/lib/error-ui";
+
+/**
+ * Codes that mean the approval never happened because the estimate on screen
+ * is no longer the one to decide (#390). PRICE_CHANGED keeps the screen — the
+ * reactive query already shows the new estimate; the rest mean there is
+ * nothing left to decide here, so we leave.
+ */
+function approvalConflict(
+  err: unknown,
+): { kind: "price_changed" | "closed"; message: string } | null {
+  const data: BookingErrorData | null = readBookingError(err);
+  if (!data) return null;
+  if (data.code === "PRICE_CHANGED") {
+    return { kind: "price_changed", message: data.message };
+  }
+  if (
+    data.code === "BOOKING_ALREADY_CANCELLED" ||
+    data.code === "BOOKING_STATE_CHANGED" ||
+    data.code === "BOOKING_NOT_FOUND"
+  ) {
+    return { kind: "closed", message: data.message };
+  }
+  return null;
+}
 
 function formatUsd(cents: number | undefined | null): string {
   const v = ((cents ?? 0) / 100).toFixed(2);
@@ -498,6 +528,37 @@ function ApprovalDecisionView({
       }>
     | undefined;
 
+  // The estimate the customer is looking at. Sent with every decision so the
+  // server refuses one that changed after this screen rendered it (#390).
+  const expectedApproval = useMemo(
+    () =>
+      approval
+        ? {
+            expected_approval_id: String(approval._id),
+            expected_total_cents: approval.mechanic_set_price_cents,
+          }
+        : {},
+    [approval],
+  );
+
+  // PRICE_CHANGED → say so and stay (the new estimate is already rendered);
+  // closed/state-changed → say so and leave. Returns true when handled.
+  const handleApprovalConflict = useCallback(
+    (err: unknown): boolean => {
+      const conflict = approvalConflict(err);
+      if (!conflict) return false;
+      if (conflict.kind === "price_changed") {
+        setPhase("review");
+        Alert.alert("The estimate changed", conflict.message);
+      } else {
+        toast.info(conflict.message);
+        router.back();
+      }
+      return true;
+    },
+    [router, toast],
+  );
+
   const handleAccept = useCallback(
     async (amountCents: number, postJob: boolean) => {
       if (busy) return;
@@ -508,14 +569,19 @@ function ApprovalDecisionView({
       // records the approval and lets the server finalize + charge.
       if (postJob) {
         try {
-          await applyDecision({ bookingId, decision: "approved" });
+          await applyDecision({
+            bookingId,
+            decision: "approved",
+            ...expectedApproval,
+          });
           toast.success("Estimate approved", undefined, { icon: FileCheck });
           router.back();
-        } catch (err: any) {
+        } catch (err) {
+          if (handleApprovalConflict(err)) return;
           setPhase("review");
           Alert.alert(
             "Could not approve",
-            err?.message ?? "Try again in a moment.",
+            formatBookingError(err, "Try again in a moment."),
           );
         }
         return;
@@ -544,6 +610,7 @@ function ApprovalDecisionView({
           bookingId,
           paymentMethodId: resolved.paymentMethodId,
           paymentOrigin: resolved.paymentOrigin,
+          ...expectedApproval,
         });
         if (pi.requiresAction) {
           const { error } = await handleNextAction(pi.clientSecret);
@@ -560,12 +627,18 @@ function ApprovalDecisionView({
         }
         toast.success("Estimate approved", undefined, { icon: FileCheck });
         router.back();
-      } catch (err: any) {
+      } catch (err) {
+        // A typed conflict is thrown BEFORE the approval is recorded or any
+        // hold placed, so nothing was approved — don't send them to reauth.
+        if (handleApprovalConflict(err)) {
+          router.setParams({ inlineHold: undefined });
+          return;
+        }
         // The estimate IS approved; only the hold failed. Hand off to the reauth
         // screen (retry / change card / cancel) rather than stranding them.
         Alert.alert(
           "Couldn't confirm the hold",
-          err?.message ?? "You can try again on the next screen.",
+          formatBookingError(err, "You can try again on the next screen."),
         );
         router.setParams({ mode: "reauth" });
       }
@@ -575,6 +648,8 @@ function ApprovalDecisionView({
       canConfirm,
       applyDecision,
       approveAndAuthorizeHold,
+      expectedApproval,
+      handleApprovalConflict,
       resolvePaymentMethod,
       handleNextAction,
       bookingId,
@@ -608,17 +683,22 @@ function ApprovalDecisionView({
           onPress: async () => {
             setSubmitting("declined");
             try {
-              await applyDecision({ bookingId, decision: "declined" });
+              await applyDecision({
+                bookingId,
+                decision: "declined",
+                ...expectedApproval,
+              });
               toast.info(
                 isMidJob ? "Added work declined" : "Estimate declined",
                 undefined,
                 { icon: FileX },
               );
               router.back();
-            } catch (err: any) {
+            } catch (err) {
+              if (handleApprovalConflict(err)) return;
               Alert.alert(
                 "Could not decline",
-                err?.message ?? "Try again in a moment.",
+                formatBookingError(err, "Try again in a moment."),
               );
             } finally {
               setSubmitting(null);
@@ -1333,10 +1413,10 @@ function ReauthView({
         throw new Error(`Card authorization failed (status: ${pi.status}).`);
       }
       router.back();
-    } catch (err: any) {
+    } catch (err) {
       Alert.alert(
         "Couldn't confirm hold",
-        err?.message ?? "Try again in a moment.",
+        formatBookingError(err, "Try again in a moment."),
       );
     } finally {
       setSubmitting(false);
@@ -1373,10 +1453,10 @@ function ReauthView({
             try {
               await requestPickupMut({ bookingId });
               toast.info("Pickup request sent. The shop will confirm.");
-            } catch (err: any) {
+            } catch (err) {
               Alert.alert(
                 "Couldn't send request",
-                err?.message ?? "Try again in a moment.",
+                formatBookingError(err, "Try again in a moment."),
               );
             }
             router.back();
@@ -1388,29 +1468,51 @@ function ReauthView({
 
     // Free or late-fee cancel — the fee (when any) is disclosed in the body and
     // confirm label before we charge. The server recomputes and rejects if the
-    // fee rose past what was acknowledged.
-    Alert.alert(copy.title, copy.body, [
-      { text: "Keep booking", style: "cancel" },
-      {
-        text: copy.confirmLabel,
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await cancelBookingMut({
-              bookingId,
-              feeAcknowledgedCents: bookingActions.feeCentsIfCancelledNow,
-            });
-            toast.success("Booking cancelled.", undefined, { icon: FileX });
-          } catch (err: any) {
-            Alert.alert(
-              "Couldn't cancel",
-              err?.message ?? "Try again in a moment.",
-            );
-          }
-          router.back();
+    // fee rose past what was acknowledged; FEE_CHANGED re-opens this confirm
+    // at the new amount instead of leaving (bug #394).
+    const confirmCancel = (feeCents: number) => {
+      const feeCopy = buildCancelCopy({
+        ...bookingActions,
+        feeCentsIfCancelledNow: feeCents,
+      });
+      Alert.alert(feeCopy.title, feeCopy.body, [
+        { text: "Keep booking", style: "cancel" },
+        {
+          text: feeCopy.confirmLabel,
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const result = await cancelBookingMut({
+                bookingId,
+                feeAcknowledgedCents: feeCents,
+              });
+              // Someone else ended it first: say who, never "cancelled".
+              const closed = alreadyClosedCancelCopy(result);
+              if (closed) {
+                toast.info(closed);
+              } else {
+                toast.success("Booking cancelled.", undefined, { icon: FileX });
+              }
+            } catch (err) {
+              const data = readBookingError(err);
+              if (data?.code === "FEE_CHANGED" && typeof data.currentCents === "number") {
+                const currentCents = data.currentCents;
+                Alert.alert("Couldn't cancel", data.message, [
+                  { text: "OK", onPress: () => confirmCancel(currentCents) },
+                ]);
+                return;
+              }
+              Alert.alert(
+                "Couldn't cancel",
+                formatBookingError(err, "Try again in a moment."),
+              );
+            }
+            router.back();
+          },
         },
-      },
-    ]);
+      ]);
+    };
+    confirmCancel(bookingActions.feeCentsIfCancelledNow);
   }, [
     submitting,
     bookingActions,
