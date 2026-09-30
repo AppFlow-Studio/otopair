@@ -89,6 +89,8 @@ export interface Booking {
   // Mechanic info
   mechanicName: string;
   shopName: string;
+  /** IANA timezone of the appointment's shop. */
+  shopTimezone?: string;
   mechanicImage?: string;
   // Scheduling
   date: string;

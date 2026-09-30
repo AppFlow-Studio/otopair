@@ -236,6 +236,8 @@ export interface Shop {
   address: string;
   /** US state code (e.g. "NY"). Drives the booking sales-tax line. */
   state?: string;
+  /** IANA timezone selected by the shop owner. Appointment times use this clock. */
+  timezone?: string;
   /** Shop's ZIP code. ZIP-3 prefix used for metro-level tax overrides. */
   zip?: string;
   /** Shop phone for Contact / tel: link */

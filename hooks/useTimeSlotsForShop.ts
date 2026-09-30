@@ -12,6 +12,7 @@ import type { FunctionReference } from "convex/server";
 import { useMemo } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useShopStore } from "@/stores/useShopStore";
 import { displayTimeToHHMM, minBookableHHMM, todayLocalISO } from "@/utils/timeSlotUtils";
 
 /** Converts 24h "09:00" to display "9:00 AM" */
@@ -70,7 +71,12 @@ export function useTimeSlotsForShop(
    * default 1-hour lead time.
    */
   minStartTimeOverride?: string,
+  timezone?: string,
 ) {
+  const storedTimezone = useShopStore((state) =>
+    shopId ? state.shops[shopId]?.timezone : undefined,
+  );
+  const shopTimezone = storedTimezone ?? timezone;
   // Skip query for mock IDs (e.g. "1", "2") — only call Convex with real IDs
   const isRealShopId = shopId != null && shopId.length > 10;
   const isRealMechanicId = mechanicId != null && mechanicId.length > 10;
@@ -96,8 +102,8 @@ export function useTimeSlotsForShop(
     // lexically chronological, so a string compare is correct. Later days
     // are unaffected. Keeping the rule here means no picker has to
     // re-implement it.
-    const isToday = date === todayLocalISO();
-    const minTime = minStartTimeOverride ?? minBookableHHMM();
+    const isToday = date === todayLocalISO(shopTimezone);
+    const minTime = minStartTimeOverride ?? minBookableHHMM(shopTimezone);
     return (slots as TimeSlotRow[])
       .filter((s) => s.is_available)
       .filter((s) => !isToday || s.start_time >= minTime)
@@ -107,7 +113,7 @@ export function useTimeSlotsForShop(
         endTime: s.end_time,
         displayTime: hhmmToDisplayTime(s.start_time),
       }));
-  }, [slots, date, minStartTimeOverride]);
+  }, [slots, date, minStartTimeOverride, shopTimezone]);
 
   // Sort by 24-hour `startTime` (HH:MM is lexically chronological) so the
   // list reads store-open → close. A naive sort on `displayTime` puts

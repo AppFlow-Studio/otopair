@@ -12,6 +12,7 @@ import { useQuery } from "convex/react";
 import { useMemo } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { useShopStore } from "@/stores/useShopStore";
 import type { MechanicAvailabilitySlot } from "@/stores/types/store.types";
 import {
   dateToDayDisplay,
@@ -40,12 +41,17 @@ export function useNextAvailabilityPerMechanicForShop(
   limitPerMechanic: number = DEFAULT_LIMIT_PER_MECHANIC,
   durationMinutes?: number,
   minimumSlot?: DateTimeFloor,
+  timezone?: string,
 ) {
+  const storedTimezone = useShopStore((state) =>
+    shopId ? state.shops[shopId]?.timezone : undefined,
+  );
+  const shopTimezone = storedTimezone ?? timezone;
   const isRealShopId = shopId != null && shopId.length > 10;
   // See useNextAvailabilityForShop: pass the user's local cutoff so the
   // server can drop past slots before slicing to `limitPerMechanic`.
   const cutoff = getPickerFloor(
-    { date: todayLocalISO(), time: minBookableHHMM() },
+    { date: todayLocalISO(shopTimezone), time: minBookableHHMM(shopTimezone) },
     minimumSlot ?? null,
   );
   const { date: cutoffDate, time: cutoffTime } = cutoff;

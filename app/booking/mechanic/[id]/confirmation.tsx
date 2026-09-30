@@ -49,6 +49,7 @@ import { buildBookingCalendarEvent, formatBookingReference } from "@/lib/booking
 import { shouldShowBookingConfirmationLoading } from "@/lib/bookingConfirmationLoading";
 import { shouldResetBookingAfterConfirmation } from "@/lib/bookingCompletionReset";
 import { getBookingCompletionCopy, isBookingRescheduleMode } from "@/lib/reschedule-flow";
+import { formatShopTime } from "@/lib/shopTimezone";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useSettingsOverlayStore } from "@/stores/useSettingsOverlayStore";
@@ -384,11 +385,12 @@ export default function ConfirmationScreen() {
 
   // Format time (e.g., "10:00 AM")
   const formattedTime = useMemo(() => {
+    const date = scheduledAppointment?.date ?? confirmedBooking?.scheduledDate ?? localBooking?.scheduledDate;
+    const rawTime = selectedMechanicSlot?.scheduledTime ?? confirmedBooking?.scheduledTime ?? localBooking?.scheduledTime;
+    if (rawTime) return formatShopTime(rawTime, date, shop?.timezone ?? localShop?.timezone);
     if (scheduledAppointment?.time) return scheduledAppointment.time;
-    if (confirmedBooking?.scheduledTime) return confirmedBooking.scheduledTime;
-    if (localBooking?.scheduledTime) return localBooking.scheduledTime;
     return "1:00 PM";
-  }, [scheduledAppointment, confirmedBooking?.scheduledTime, localBooking]);
+  }, [scheduledAppointment, selectedMechanicSlot, confirmedBooking?.scheduledDate, confirmedBooking?.scheduledTime, localBooking, shop?.timezone, localShop?.timezone]);
 
   // Format vehicle display
   const vehicleDisplay = selectedVehicle

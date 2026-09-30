@@ -77,6 +77,7 @@ import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { buildShopPriceLabel } from "@/lib/shopPriceLabel";
+import { formatShopTime } from "@/lib/shopTimezone";
 import { weekdayLongFromISO } from "@/utils/timeSlotUtils";
 import { useCoachAnchor } from "@/components/coach/useCoachAnchor";
 
@@ -643,8 +644,11 @@ export default function ChooseMechanicScreen() {
     const day = activeEarliestSlot.scheduledDate
       ? weekdayLongFromISO(activeEarliestSlot.scheduledDate)
       : activeEarliestSlot.dayOfWeek;
-    return `Book ${day} ${activeEarliestSlot.time}`;
-  }, [hasServices, activeEarliestSlot]);
+    const time = activeEarliestSlot.scheduledTime
+      ? formatShopTime(activeEarliestSlot.scheduledTime, activeEarliestSlot.scheduledDate, activeShop?.timezone)
+      : activeEarliestSlot.time;
+    return `Book ${day} ${time}`;
+  }, [hasServices, activeEarliestSlot, activeShop?.timezone]);
 
   const activeDistanceMi = nearbyShops[activeIndex]?.distanceMi ?? 0;
 

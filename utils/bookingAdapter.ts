@@ -22,16 +22,20 @@ import {
   type PadType,
   type RotorAxle,
 } from "@/constants/rotorFlow";
-import { hhmmToDisplayTime } from "@/utils/timeSlotUtils";
+import { formatShopTime } from "@/lib/shopTimezone";
 import { formatServiceDisplayNames } from "@/utils/serviceDisplayName";
 
 /** Convert "14:00" → "2:00 PM"; pass through anything that already
  *  contains AM/PM. Empty/undefined returns "". */
-function formatBookingTime(raw: string | undefined | null): string {
+function formatBookingTime(
+  raw: string | undefined | null,
+  date?: string | null,
+  timezone?: string,
+): string {
   if (!raw) return "";
   if (/AM|PM/i.test(raw)) return raw;
   if (!/^\d{1,2}:\d{2}$/.test(raw)) return raw;
-  return hhmmToDisplayTime(raw);
+  return formatShopTime(raw, date, timezone);
 }
 
 // ============================================================================
@@ -51,6 +55,7 @@ export interface ConvexBookingWithDetails {
   mechanic_id?: string;
   shopName: string;
   shopPhone: string;
+  shopTimezone?: string;
   /** Joined street address ("addr, city, state, zip"); "" when unknown.
    *  Optional for back-compat with server code predating the field. */
   shopAddress?: string;
@@ -212,7 +217,7 @@ export function adaptBookingForCard({
     shopName: shop?.name || mechanic?.shopName || "Unknown Shop",
     mechanicImage: mechanic?.photoUrl || undefined,
     date: formattedDate,
-    time: formatBookingTime(storeBooking.scheduledTime),
+    time: formatBookingTime(storeBooking.scheduledTime, storeBooking.scheduledDate, shop?.timezone),
     status: (statusMap[storeBooking.status] as BookingCardBooking["status"]) || "pending",
     totalCost: storeBooking.status === "completed" ? storeBooking.totalPrice : undefined,
   };
@@ -310,6 +315,7 @@ export function adaptConvexBookingWithDetailsToCard(row: ConvexBookingWithDetail
     makeLogoUrl: row.vehicleImageUrl ?? row.makeLogoUrl,
     mechanicName: row.mechanicName,
     shopName: row.shopName,
+    shopTimezone: row.shopTimezone,
     // Normalize "" → undefined so the sheet's missing-data disables
     // (Directions/Contact grey out when there's nothing to open) hold.
     shopPhone: row.shopPhone?.trim() ? row.shopPhone : undefined,
@@ -317,7 +323,7 @@ export function adaptConvexBookingWithDetailsToCard(row: ConvexBookingWithDetail
     mechanicImage: row.mechanicImageUrl,
     date: formatBookingDate(row.scheduled_date),
     scheduledDate: row.scheduled_date,
-    time: formatBookingTime(row.scheduled_time),
+    time: formatBookingTime(row.scheduled_time, row.scheduled_date, row.shopTimezone),
     status,
     totalCost: row.total_cost,
     notes,

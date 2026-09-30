@@ -4,6 +4,8 @@
  * Converts display time (e.g. "9:00 AM") to Convex HH:MM format ("09:00").
  */
 
+import { DEFAULT_SHOP_TIMEZONE, shopTodayISO } from "@/lib/shopTimezone";
+
 /**
  * Convert display time like "9:00 AM", "1:00 PM" to 24h "HH:MM"
  */
@@ -27,12 +29,19 @@ export function hhmmToDisplayTime(hhmm: string): string {
   return `${h - 12}:${String(m).padStart(2, "0")} PM`;
 }
 
-/** Today's date as "YYYY-MM-DD" in the device's local timezone. */
-export function todayLocalISO(now = new Date()): string {
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
+/** Today's date as "YYYY-MM-DD" in the shop's timezone. */
+export function todayLocalISO(timezone = DEFAULT_SHOP_TIMEZONE, now = new Date()): string {
+  return shopTodayISO(timezone, now);
+}
+
+function shopClock(timezone: string, now: Date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(now);
+  return Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
 }
 
 /**
@@ -55,8 +64,9 @@ export const MIN_ADVANCE_NOTICE_LABEL = "Bookings require at least 1 hour's noti
  * ever pushes later, so the guarantee stays "at least 1 hour." Can exceed
  * 1440 late at night — callers treat that as "nothing bookable today."
  */
-export function minBookableMinutes(now = new Date()): number {
-  const raw = now.getHours() * 60 + now.getMinutes() + MIN_ADVANCE_NOTICE_MINUTES;
+export function minBookableMinutes(timezone = DEFAULT_SHOP_TIMEZONE, now = new Date()): number {
+  const clock = shopClock(timezone, now);
+  const raw = Number(clock.hour) * 60 + Number(clock.minute) + MIN_ADVANCE_NOTICE_MINUTES;
   return Math.ceil(raw / 15) * 15;
 }
 
@@ -66,8 +76,8 @@ export function minBookableMinutes(now = new Date()): number {
  * lexically chronological). Returns "24:00" when the window runs past
  * midnight (all of today's slots fall within the lead time).
  */
-export function minBookableHHMM(now = new Date()): string {
-  const rounded = minBookableMinutes(now);
+export function minBookableHHMM(timezone = DEFAULT_SHOP_TIMEZONE, now = new Date()): string {
+  const rounded = minBookableMinutes(timezone, now);
   if (rounded >= 1440) return "24:00";
   const hh = String(Math.floor(rounded / 60)).padStart(2, "0");
   const mm = String(rounded % 60).padStart(2, "0");
@@ -80,9 +90,10 @@ export function minBookableHHMM(now = new Date()): string {
  * which is exempt from the customer's advance-notice window — see
  * {@link isQuotedSlotBookable}.
  */
-export function currentHHMM(now = new Date()): string {
-  const hh = String(now.getHours()).padStart(2, "0");
-  const mm = String(now.getMinutes()).padStart(2, "0");
+export function currentHHMM(timezone = DEFAULT_SHOP_TIMEZONE, now = new Date()): string {
+  const clock = shopClock(timezone, now);
+  const hh = String(clock.hour).padStart(2, "0");
+  const mm = String(clock.minute).padStart(2, "0");
   return `${hh}:${mm}`;
 }
 
@@ -102,11 +113,12 @@ export function isQuotedSlotBookable(
   time: string,
   serverAvailable: boolean,
   now = new Date(),
+  timezone = DEFAULT_SHOP_TIMEZONE,
 ): boolean {
   if (!serverAvailable) return false;
-  const today = todayLocalISO(now);
+  const today = todayLocalISO(timezone, now);
   if (date !== today) return date > today;
-  return time >= currentHHMM(now);
+  return time >= currentHHMM(timezone, now);
 }
 
 export interface DateTimeFloor {

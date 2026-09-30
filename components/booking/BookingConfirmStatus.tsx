@@ -21,6 +21,7 @@ import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { resolveBookingVehicleVin } from "@/utils/bookingVehicle";
+import { formatShopTime } from "@/lib/shopTimezone";
 
 interface Props {
   /** Fires once - either via user tap or the 8s countdown auto-fire.
@@ -67,7 +68,9 @@ export function BookingConfirmStatus({
   const shop = shopId ? getShopById(shopId) : null;
 
   const appointmentLabel = scheduledAppointment
-    ? `${scheduledAppointment.displayDate || scheduledAppointment.date} - ${scheduledAppointment.time}`
+    ? `${scheduledAppointment.displayDate || scheduledAppointment.date} - ${selectedMechanicSlot?.scheduledTime
+        ? formatShopTime(selectedMechanicSlot.scheduledTime, selectedMechanicSlot.scheduledDate, shop?.timezone)
+        : scheduledAppointment.time}`
     : "Time TBD";
 
   const vehicleLabel = bookingVehicle

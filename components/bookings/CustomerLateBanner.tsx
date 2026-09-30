@@ -32,6 +32,7 @@ import {
   SemanticColors,
   SurfaceColors,
 } from "@/constants/theme";
+import { formatShopTime } from "@/lib/shopTimezone";
 
 const LATE_CATEGORY = "customer_late_push_reminder";
 const RESOLUTION_CATEGORY = "overrun_customer_resolution";
@@ -40,15 +41,12 @@ const ACCENT = SemanticColors.primaryBlue; // #2563EB
 const RESOLUTION_ACCENT = SemanticColors.primaryBlue;
 const ROAD_IMG = require("@/assets/images/waiting-road.png");
 
-function formatTime12h(hhmm: string | null | undefined): string {
-  if (!hhmm) return "";
-  const [hStr, mStr] = hhmm.split(":");
-  const h = Number(hStr);
-  const m = Number(mStr);
-  if (!Number.isFinite(h) || !Number.isFinite(m)) return hhmm;
-  const ampm = h >= 12 ? "PM" : "AM";
-  const hr = h % 12 || 12;
-  return `${hr}:${String(m).padStart(2, "0")} ${ampm}`;
+function formatBookingTime(
+  hhmm: string | null | undefined,
+  date: string | null | undefined,
+  timezone: string | null | undefined,
+): string {
+  return hhmm ? formatShopTime(hhmm, date ?? undefined, timezone ?? undefined) : "";
 }
 
 interface Props {
@@ -191,8 +189,8 @@ export function CustomerLateBanner({ onReschedule }: Props) {
 
             <Text style={styles.heroDesc}>
               Booking at{" "}
-              {formatTime12h(lateRow.scheduledTime) || "the scheduled time"}{" "}
-              hasn't checked in yet.
+              {formatBookingTime(lateRow.scheduledTime, lateRow.scheduledDate, lateRow.shopTimezone) || "the scheduled time"}{" "}
+              hasn&apos;t checked in yet.
             </Text>
 
             <View style={styles.heroButtons}>
@@ -261,7 +259,7 @@ export function CustomerLateBanner({ onReschedule }: Props) {
             <View style={styles.resTitleRow}>
               <Text weight="semiBold" style={styles.resTitle}>
                 {resolutionRow.payload?.newEndTime
-                  ? `Now finishing around ${formatTime12h(resolutionRow.payload.newEndTime)}`
+                  ? `Now finishing around ${formatBookingTime(resolutionRow.payload.newEndTime, resolutionRow.scheduledDate, resolutionRow.shopTimezone)}`
                   : `Running ~${resolutionRow.payload?.extensionMinutes ?? 15} min behind`}
               </Text>
               <ResolutionHandlePill handle={resolutionRow.shortHandle} />
@@ -274,7 +272,7 @@ export function CustomerLateBanner({ onReschedule }: Props) {
               {resolutionRow.shopName
                 ? `${resolutionRow.shopName} pushed the slot forward.`
                 : "Shop pushed the slot forward."}{" "}
-              Tap reschedule if the new time doesn't work.
+              Tap reschedule if the new time doesn&apos;t work.
             </Text>
             <View style={styles.resButtonRow}>
               <Pressable
