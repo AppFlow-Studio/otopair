@@ -2,13 +2,13 @@
   "expo": {
     "name": "otopair",
     "slug": "otopair",
-    "version": "1.3.5",
+    "version": "1.3.6",
     "orientation": "portrait",
     "icon": "./assets/images/repairconnectglasslogo.png",
     "scheme": "otopair",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": true,
+      "supportsTablet": false,
       "bundleIdentifier": "com.otopair.app",
       "infoPlist": {
         "NSSpeechRecognitionUsageDescription": "Allow Otopair to use speech recognition to transcribe your voice.",

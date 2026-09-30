@@ -112,12 +112,15 @@ export function useConfirmHold(
     };
   }, [isPlatformPaySupported]);
 
-  // Prefer the approved ceiling (what the backend re-authorizes to); fall back
-  // to the mechanic set price for older bookings not yet through the new cycle.
-  const newHoldCents: number =
-    booking?.running_approved_ceiling_cents ??
-    booking?.mechanic_set_price_cents ??
-    0;
+  // EXACTLY what the backend authorizes: max(set price, approved ceiling) —
+  // approveAndAuthorizeHold / resumeReauthFromMobile use this expression, and
+  // getReauthBreakdownForBooking returns it as `holdTargetCents`. The old
+  // "ceiling ?? set price" showed a lower hold than the one placed whenever the
+  // set price had moved above the ceiling.
+  const newHoldCents: number = Math.max(
+    booking?.mechanic_set_price_cents ?? 0,
+    booking?.running_approved_ceiling_cents ?? 0,
+  );
 
   // The card that would back a card-origin hold: the user's active selection
   // (set by the picker / AddPaymentScreen), then default, then the first saved.
