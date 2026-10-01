@@ -50,6 +50,7 @@ import { useMutationWithToast } from "@/hooks/useMutationWithToast";
 import { useQuoteRequestAvailability } from "@/hooks/useQuoteRequestAvailability";
 import { formatFeeCents } from "@/constants/bookingActionPolicy";
 import { useToast } from "@/hooks/useToast";
+import { displayTimeToHHMM } from "@/utils/timeSlotUtils";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { FunctionReference } from "convex/server";
 import type { QuoteUnavailableReason } from "@/utils/quoteAvailability";
@@ -477,24 +478,21 @@ export default function BookingsScreen() {
     setRescheduleBooking(null);
   }, []);
 
+  const requestReschedule = useMutationWithToast(api.bookings.customerRequestReschedule, {
+    success: "Reschedule requested. Waiting for the shop to confirm.",
+    error: "Couldn't reschedule this booking. Try again or message the shop.",
+  });
   const handleConfirmRescheduleSlot = useCallback(
-    (_date: Date, _time: string, mechanicId: string | null) => {
+    (date: Date, time: string, mechanicId: string | null) => {
       if (!rescheduleBooking) return;
-      const routeId = mechanicId ?? rescheduleBooking.mechanicId ?? rescheduleBooking.shopId;
-      if (!routeId) {
-        toast.warning("Choose a mechanic before rescheduling.");
-        return;
-      }
-      router.push({
-        pathname: "/booking/mechanic/[id]/confirming",
-        params: {
-          id: routeId,
-          mode: "reschedule",
-          bookingDbId: rescheduleBooking.id,
-        },
-      });
+      void requestReschedule({
+        bookingId: rescheduleBooking.id as Id<"bookings">,
+        newScheduledDate: date.toISOString().split("T")[0],
+        newScheduledTime: displayTimeToHHMM(time),
+        newMechanicId: mechanicId ? mechanicId as Id<"mechanics"> : undefined,
+      }).catch(() => {});
     },
-    [rescheduleBooking, router, toast],
+    [rescheduleBooking, requestReschedule],
   );
 
   const handleDownloadPdf = (bookingId: string) => {

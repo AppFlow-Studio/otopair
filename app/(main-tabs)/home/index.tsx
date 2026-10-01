@@ -63,6 +63,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useVehicleOwnershipFromConvex } from '@/hooks/useVehicleOwnershipFromConvex';
 import { fetchVehicleImageUrl } from '@/utils/vehicleImage';
 import { adaptConvexBookingWithDetailsToCard } from '@/utils/bookingAdapter';
+import { displayTimeToHHMM } from '@/utils/timeSlotUtils';
 import { BookingDetailsSheet, type BookingDetailsSheetRef } from '@/components/bookings/BookingDetailsSheet';
 import type { Booking as BookingCardBooking } from '@/components/bookings/BookingCard';
 import { AvailabilityModal } from '@/components/booking/modals/AvailabilityModal';
@@ -1250,10 +1251,15 @@ export default function HomeScreen() {
   // Cancel handler — mirror the bookings tab's behavior. Convex bookings
   // get the cancelBooking mutation; tire-quote-prefixed local IDs are
   // out of scope here (those don't surface as upcoming on home).
+  const { upcomingBookings, pendingReviewBookings } = useMyBookingsWithDetails();
   const cancelConvexBooking = useMutationWithToast(api.bookings.cancelBooking, {
     success: "Booking cancelled.",
     successIcon: CalendarX,
     error: "Couldn't cancel this booking. Try again.",
+  });
+  const requestReschedule = useMutationWithToast(api.bookings.customerRequestReschedule, {
+    success: "Reschedule requested. Waiting for the shop to confirm.",
+    error: "Couldn't reschedule this booking. Try again or message the shop.",
   });
   const handleAppointmentCancel = useCallback(
     (bookingId: string, feeAcknowledgedCents?: number) => {
@@ -1273,16 +1279,17 @@ export default function HomeScreen() {
   const handleReschedule = useCallback(
     (bookingId: string) => {
       const isLocalId = bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_");
-      if (!upcomingBookingCard || upcomingBookingCard.id !== bookingId || isLocalId || !upcomingBookingCard.shopId) {
+      const booking = upcomingBookings.find((b) => b.id === bookingId);
+      if (!booking || isLocalId || !booking.shopId || ["in_progress", "vehicle_at_shop"].includes(booking.status)) {
         toast.warning("This booking can't be rescheduled from here.");
         return;
       }
-      if (upcomingBookingCard.vin) {
-        selectVehicle(upcomingBookingCard.vin.toUpperCase());
+      if (booking.vin) {
+        selectVehicle(booking.vin.toUpperCase());
       }
-      setRescheduleBooking(upcomingBookingCard);
+      setRescheduleBooking(booking);
     },
-    [selectVehicle, toast, upcomingBookingCard],
+    [upcomingBookings, selectVehicle, toast],
   );
 
   const handleCloseRescheduleModal = useCallback(() => {
@@ -1290,23 +1297,16 @@ export default function HomeScreen() {
   }, []);
 
   const handleConfirmRescheduleSlot = useCallback(
-    (_date: Date, _time: string, mechanicId: string | null) => {
+    (date: Date, time: string, mechanicId: string | null) => {
       if (!rescheduleBooking) return;
-      const routeId = mechanicId ?? rescheduleBooking.mechanicId ?? rescheduleBooking.shopId;
-      if (!routeId) {
-        toast.warning("Choose a mechanic before rescheduling.");
-        return;
-      }
-      router.push({
-        pathname: "/booking/mechanic/[id]/confirming",
-        params: {
-          id: routeId,
-          mode: "reschedule",
-          bookingDbId: rescheduleBooking.id,
-        },
-      });
+      void requestReschedule({
+        bookingId: rescheduleBooking.id as Id<"bookings">,
+        newScheduledDate: date.toISOString().split("T")[0],
+        newScheduledTime: displayTimeToHHMM(time),
+        newMechanicId: mechanicId ? mechanicId as Id<"mechanics"> : undefined,
+      }).catch(() => {});
     },
-    [rescheduleBooking, router, toast],
+    [rescheduleBooking, requestReschedule],
   );
 
   // View Details — open the same BookingDetailsSheet the bookings tab uses.
@@ -1326,7 +1326,6 @@ export default function HomeScreen() {
   // again for that booking. (Submitting a review also drops the booking
   // from `pendingReviewBookings` via Convex `listReviewedBookingIdsForUser`,
   // so this guard is mainly for "No thanks" dismissals.)
-  const { pendingReviewBookings } = useMyBookingsWithDetails();
   const reviewSheetRef = useRef<LeaveReviewSheetRef>(null);
   const promptedIdsRef = useRef<Set<string> | null>(null);
   // The auto-prompt now opens the ReceiptSheet for the eligible booking.

@@ -6,9 +6,8 @@
  * The late "…is waiting" card is a hero card: clock chip + shop title + handle
  * pill, the customer's name, the missed check-in line, and On my way /
  * Reschedule actions, with a full-bleed winding-road + map-pin illustration
- * bleeding off the right edge. The overrun "running long" card keeps the app's
- * compact alert-card language. Both self-clear from the feed once the customer
- * acts or the booking moves on.
+ * bleeding off the right edge. The overrun "running long" card is FYI-only:
+ * work has already started, so the customer can only acknowledge it.
  */
 
 import React from "react";
@@ -224,8 +223,10 @@ export function CustomerLateBanner({ onReschedule }: Props) {
                   pressed && styles.pressed,
                 ]}
                 onPress={() => {
-                  if (lateRow.booking_id && onReschedule)
-                    onReschedule(lateRow.booking_id);
+                  if (!lateRow.booking_id || !onReschedule) return;
+                  dismissMany([String(lateRow._id)]);
+                  void resolve({ notificationId: lateRow._id }).catch(() => {});
+                  onReschedule(lateRow.booking_id);
                 }}
               >
                 <Calendar size={16} color={ACCENT} strokeWidth={2.2} />
@@ -270,30 +271,10 @@ export function CustomerLateBanner({ onReschedule }: Props) {
             />
             <Text style={styles.resDesc}>
               {resolutionRow.shopName
-                ? `${resolutionRow.shopName} pushed the slot forward.`
-                : "Shop pushed the slot forward."}{" "}
-              Tap reschedule if the new time doesn&apos;t work.
+                ? `${resolutionRow.shopName} says your service is taking a little longer.`
+                : "Your service is taking a little longer."}
             </Text>
             <View style={styles.resButtonRow}>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.resBtn,
-                  styles.resBtnPrimary,
-                  pressed && styles.pressed,
-                ]}
-                onPress={() => {
-                  // Close the whole same-booking group immediately, then
-                  // navigate. The rows clear for good server-side when the
-                  // reschedule lands / booking moves.
-                  dismissMany(resolutionGroup.map((n) => String(n._id)));
-                  if (resolutionRow.booking_id && onReschedule)
-                    onReschedule(resolutionRow.booking_id);
-                }}
-              >
-                <Text size="sm" weight="bold" style={styles.resBtnPrimaryText}>
-                  Reschedule
-                </Text>
-              </Pressable>
               <Pressable
                 style={({ pressed }) => [
                   styles.resBtn,
@@ -493,8 +474,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  resBtnPrimary: { backgroundColor: BrandColors.primary },
-  resBtnPrimaryText: { color: BrandColors.white },
   resBtnOutline: {
     backgroundColor: SurfaceColors.cardSurface,
     borderWidth: 1,
