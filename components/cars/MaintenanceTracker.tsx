@@ -74,6 +74,7 @@ import { scale, moderateScale } from '@/utils/responsive';
 import type { RankedMaintenanceItem } from '@/hooks/useUrgencyRankedItems';
 import type { UrgencyTier } from '@/utils/urgency';
 import { extractMaintenanceType } from '@/lib/maintenanceServiceMapping';
+import { scanRecentlyDone } from '@/utils/mergedMaintenance';
 
 // ============================================================================
 // TYPES
@@ -208,8 +209,15 @@ export interface MaintenanceItem {
   resolvedAt?: number;
   /** The maintenance_records `type` the ack must patch. Usually derivable from
    *  the item id, but a `catalog-<slug>` inference item resolves via its
-   *  slug-specific minor anchor, so it's carried explicitly. */
+   *  service's own anchor, so it's carried explicitly. */
   resolvedRecordType?: string;
+  /** Set when the visit did upkeep ON this part rather than replacing it (a
+   *  tire rotation on the Tires card). The resolved card then says "Tire
+   *  rotation logged by …" — the part's own life is unchanged (#413). */
+  resolvedServiceLabel?: string;
+  /** Epoch ms of the record this item is measured from. Lets the "why" copy
+   *  tell a just-serviced item from one whose interval is running out. */
+  lastServiceAt?: number;
 }
 
 interface MaintenanceTrackerProps {
@@ -253,6 +261,10 @@ interface MaintenanceTrackerProps {
   openItemId?: string;
   /** True while the vehicle's enrichment pipeline is still running. */
   isEnriching?: boolean;
+  /** When a shop last scanned this car (utils/mergedMaintenance
+   *  `lastShopScanAt`). A recent scan retires the RECOMMENDED "book a
+   *  diagnostic scan" card — the car was just scanned (#340). */
+  lastScanAt?: number | null;
   /** Taxonomy slugs the vehicle can book RIGHT NOW, from
    *  `useBookableServices`. Enrichment is not all-or-nothing: a diagnostic
    *  scan and a battery test are bookable while it runs, and the scan is
@@ -831,7 +843,10 @@ function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBo
             <View style={cardStyles.textColumn}>
               <Text weight="bold" style={cardStyles.title}>{item.serviceName}</Text>
               <Text style={cardStyles.resolvedSubtitle}>
-                Resolved by {shop}{resolvedDate ? ` · ${resolvedDate}` : ''}
+                {item.resolvedServiceLabel
+                  ? `${item.resolvedServiceLabel} logged by ${shop}`
+                  : `Resolved by ${shop}`}
+                {resolvedDate ? ` · ${resolvedDate}` : ''}
               </Text>
             </View>
             <Ionicons name="chevron-forward" size={scale(20)} color="#34C759" />
@@ -1236,7 +1251,7 @@ function HealthySection({
 // Resets naturally on car swap (tracker keyed by VIN in cars/index.tsx).
 const CAP_PER_URGENT_TIER = 3;
 
-export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, vehicleLabel, onBookNow, onTakeAction, onMarkDone, onAnswerRecency, onAddInfo, onResolvedPress, onEditPressed, isDarkBg = false, tieredItems, resolvedItems, openItemId, isEnriching = false, bookableSlugs }: MaintenanceTrackerProps) {
+export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, vehicleLabel, onBookNow, onTakeAction, onMarkDone, onAnswerRecency, onAddInfo, onResolvedPress, onEditPressed, isDarkBg = false, tieredItems, resolvedItems, openItemId, isEnriching = false, bookableSlugs, lastScanAt }: MaintenanceTrackerProps) {
   const [selectedItem, setSelectedItem] = useState<MaintenanceItem | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [showAllNow, setShowAllNow] = useState(false);
@@ -1289,6 +1304,8 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
   // Mirrors DiagnosticScanCard's own gate so the row and the card agree about
   // whether a scan is bookable right now.
   const rootScanBlocked = isBookingBlocked(isEnriching, bookableSlugs, SLUG_DIAGNOSTIC_SCAN);
+  // A shop just scanned this car — don't recommend booking another (#340).
+  const showScanCard = !scanRecentlyDone(lastScanAt);
 
   const overdueItems = items
     .filter(i => i.status === 'overdue')
@@ -1343,7 +1360,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
     splitQuietItems(
     (tieredItems?.resting ?? []).map((r) => r.item),
   );
-  const hasRecommended = restingUnknown.length > 0 || restingNeedsInfo.length > 0;
+  const hasRecommended = showScanCard && (restingUnknown.length > 0 || restingNeedsInfo.length > 0);
   const recommendedLabelDelay = hasRecommended ? tierStep++ * STEP_MS : 0;
   const recommendedCardDelay = hasRecommended ? tierStep++ * STEP_MS : 0;
   const healthyRestDelay = restingHealthy.length > 0 ? tierStep++ * STEP_MS : 0;
@@ -1546,7 +1563,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
               with the same weight as NOW / SOON because it asks for the same
               kind of action; it sits above the quiet sections so the one
               actionable thing here is not buried under them. */}
-          {(restingUnknown.length > 0 || restingNeedsInfo.length > 0) && onBookNow && (
+          {(restingUnknown.length > 0 || restingNeedsInfo.length > 0) && onBookNow && showScanCard && (
             <>
               <Animated.View entering={FadeInUp.duration(450).delay(recommendedLabelDelay)}>
                 <RecommendedLabel />
@@ -1651,7 +1668,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
           {/* Healthy items (expandable). Always expanded by default; user
               can collapse with the chevron. The section handles its own
               per-item cascade animation internally. */}
-          {(legacyUnknown.length > 0 || legacyNeedsInfo.length > 0) && onBookNow && (
+          {(legacyUnknown.length > 0 || legacyNeedsInfo.length > 0) && onBookNow && showScanCard && (
             <>
               <Animated.View entering={FadeInUp.duration(ENTRY_DURATION).delay(healthyDelay)}>
                 <RecommendedLabel />

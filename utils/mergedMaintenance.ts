@@ -44,11 +44,15 @@ import { ageMonths } from "@/utils/quickCheckFiring";
 import type { IntervalClassContext } from "@/utils/maintenanceStatus";
 import { TAXONOMY } from "@/constants/serviceTaxonomy";
 import { formatMileage } from "@/lib/vehicle-passport";
-// Slug → its slug-specific "minor" anchor. Single source of truth (same map
-// booking completion writes back to), so a from-odometer inference item closes
-// out against the exact service that was done. Client already imports from
+// Slug → its own anchor row, and the upkeep that is done ON a tracked part
+// without replacing it. Single source of truth (the same maps booking
+// completion writes back to), so a from-odometer inference item closes out
+// against the exact service that was done. Client already imports from
 // @/convex/lib elsewhere (see cars/index.tsx → vinIdentity).
-import { minorRecordTypeForServiceSlug } from "@/convex/lib/serviceRecordType";
+import {
+  serviceAnchorRecordType,
+  UPKEEP_SLUGS_BY_RECORD_TYPE,
+} from "@/convex/lib/serviceRecordType";
 
 /** Minimal shape of a driver-visible mechanic recommendation, mirrored from
  *  api.jobRecommendations.getDriverVisibleRecsForVehicle. */
@@ -139,7 +143,10 @@ const CATALOG_SLUGS_TO_SKIP: ReadonlySet<string> = new Set([
 const ANCHOR_TYPE_TO_SLUG: Partial<Record<MaintenanceType, string>> = {
   oil: "oil_change",
   brakes: "brake_pad_replacement",
-  tires: "tire_rotation",
+  // Tread life — the interval the Tires card is actually measured on
+  // (maintenanceStatus TYPE_TO_OEM_SLUG). This said tire_rotation, so the
+  // pill showed a rotation cadence under a tread-life status (#413).
+  tires: "tire_replacement",
   battery: "battery_replacement",
   inspection: "state_inspection",
 };
@@ -149,6 +156,7 @@ const MS_PER_MONTH = 30.44 * 24 * 60 * 60 * 1000;
 interface DerivedSignals {
   signals: { time?: string; mileage?: string; interval?: string };
   triggeredBy: MaintenanceTriggerAxis;
+  lastServiceAt?: number;
 }
 
 function pickAnchorAxis(hasDate: boolean, hasMileage: boolean): MaintenanceTriggerAxis {
@@ -190,13 +198,22 @@ function deriveAnchoredSignals(
     if (parts.length > 0) signals.interval = parts.join(" / ");
   }
 
-  return { signals, triggeredBy: pickAnchorAxis(hasDate, hasMileage) };
+  return {
+    signals,
+    triggeredBy: pickAnchorAxis(hasDate, hasMileage),
+    lastServiceAt: record.lastServiceDate ?? undefined,
+  };
 }
 
 /** Non-mutating merge — attach signals to an anchored item without
  *  spreading the same three keys at every push site. */
 function withSignals(item: MaintenanceItem, derived: DerivedSignals): MaintenanceItem {
-  return { ...item, signals: derived.signals, triggeredBy: derived.triggeredBy };
+  return {
+    ...item,
+    signals: derived.signals,
+    triggeredBy: derived.triggeredBy,
+    lastServiceAt: derived.lastServiceAt,
+  };
 }
 
 /** Minimal record shape the merge reads — type (to match a user item), the
@@ -309,6 +326,54 @@ function buildMinorItems(
     });
   }
   return out;
+}
+
+/** Records whose stamp means "a shop scanned this car": a diagnostic scan or a
+ *  check-engine diagnosis, booked or added mid-job (both write "diagnostics"). */
+const DIAGNOSTIC_RECORD_TYPE = "diagnostics";
+
+/** How long a shop scan answers the RECOMMENDED "book a diagnostic scan" card.
+ *  The same window the tracker gives a driver's own "confirmed healthy" — the
+ *  car was just looked at, so asking again inside it reads as an upsell. */
+export const RECENT_SCAN_WINDOW_MS = 90 * 24 * 60 * 60 * 1000;
+
+/** When the car was last scanned at a shop, from its records; null if never. */
+export function lastShopScanAt(records: readonly MergeRecordLike[] | undefined): number | null {
+  const scan = records?.find((r) => r.type === DIAGNOSTIC_RECORD_TYPE);
+  return typeof scan?.lastServiceDate === "number" ? scan.lastServiceDate : null;
+}
+
+/** True when a shop scan is recent enough that recommending another is noise
+ *  (#340: the scan done on this visit stayed under RECOMMENDED). */
+export function scanRecentlyDone(lastScanAt: number | null | undefined, now: number = Date.now()): boolean {
+  return typeof lastScanAt === "number" && now - lastScanAt < RECENT_SCAN_WINDOW_MS;
+}
+
+/**
+ * The newest unacknowledged booking stamp for an item: its own record, or —
+ * for a part with upkeep that never replaces it (tires ← rotation, battery ←
+ * battery test) — that upkeep's own anchor. A rotation no longer stamps
+ * "tires" (#413), so without the second look the visit's rotation would have
+ * nowhere to show up on the Tires card at all.
+ */
+function latestUnackedStamp(
+  records: readonly MergeRecordLike[] | undefined,
+  recordType: string,
+): { record: MergeRecordLike; servicedAt: number; upkeepLabel?: string } | null {
+  const candidates: Array<{ type: string; upkeepLabel?: string }> = [{ type: recordType }];
+  for (const slug of UPKEEP_SLUGS_BY_RECORD_TYPE[recordType] ?? []) {
+    const type = serviceAnchorRecordType(slug);
+    if (type) candidates.push({ type, upkeepLabel: TAXONOMY[slug]?.label ?? slug.replace(/_/g, " ") });
+  }
+  let best: { record: MergeRecordLike; servicedAt: number; upkeepLabel?: string } | null = null;
+  for (const { type, upkeepLabel } of candidates) {
+    const record = records?.find((r) => r.type === type);
+    if (!record?.lastServiceBookingId) continue;
+    const servicedAt = typeof record.lastServiceDate === "number" ? record.lastServiceDate : 0;
+    if (!servicedAt || (record.resolutionAckedAt ?? 0) >= servicedAt) continue;
+    if (!best || servicedAt > best.servicedAt) best = { record, servicedAt, upkeepLabel };
+  }
+  return best;
 }
 
 /**
@@ -488,6 +553,23 @@ export function buildMergedMaintenanceItems(
   const inspectionItem = userItems.get("inspection");
   if (inspectionItem) result.push(inspectionItem);
 
+  // A scan a shop just did. There is no tracker row for a scan, so the visit's
+  // scan — often added mid-job and marked "Fixed this visit" — had nowhere to
+  // resolve: it never reached RESOLVED and the RECOMMENDED card kept asking for
+  // one (#340). Present only while that resolution is unseen; the overlay
+  // below turns it into the "Resolved by [shop]" card, and once tapped it
+  // leaves rather than becoming a permanent row. Never scores.
+  if (latestUnackedStamp(records, DIAGNOSTIC_RECORD_TYPE)) {
+    result.push({
+      id: `user-${DIAGNOSTIC_RECORD_TYPE}`,
+      serviceName: "Diagnostic Scan",
+      description: "Scanned at the shop",
+      detail: "Done",
+      status: "on_time",
+      excludeFromScore: true,
+    });
+  }
+
   // Consolidated Upkeep scoring model — catalog-matched minor fields
   // flagged yellow/red (see buildMinorItems above).
   // Remedies a mechanic has already recommended — those recommendations own
@@ -602,16 +684,18 @@ export function buildMergedMaintenanceItems(
       //
       //   - the driver answered "when was this last done?" on the card
       //     (`catalog_<slug>`), which is a fact they gave us; and
-      //   - a booking completion stamped the slug-specific `minor_<slug>` row,
-      //     which is a shop actually doing the work.
+      //   - a booking completion stamped the service's own anchor row
+      //     (`minor_*` for the five eye-check services, `service_<slug>` for
+      //     the rest), which is a shop actually doing the work.
       //
       // Temur added the second; the first came from Quick Check v2. Without
       // either, the row measures from new — an assumption, which is why it
-      // scores nothing. Only the slug-specific minor anchor is safe: the
-      // shared aggregates ("fluids" / "engine_parts") would falsely retire
-      // every sibling service.
+      // scores nothing. Only the service's own anchor is safe: the shared
+      // aggregates ("fluids" / "engine_parts") would falsely retire every
+      // sibling service. Before every service had one, a shop could change
+      // the spark plugs and this row still read "overdue" (#206 / #428).
       const answered = records?.find((r) => r.type === catalogRecordType(slug));
-      const minorType = minorRecordTypeForServiceSlug(slug);
+      const minorType = serviceAnchorRecordType(slug);
       const minorAnchor = minorType
         ? records?.find((r) => r.type === minorType)
         : undefined;
@@ -715,13 +799,29 @@ export function buildMergedMaintenanceItems(
               })
             : undefined,
         signals: {
-          mileage: `${formatMileage(currentOdometer)} (current)`,
+          // Anchored rows measure from the anchor, in the same "since last
+          // service" shape the core tiles use — the explanation sheet reads an
+          // anchored row's mileage as distance SINCE the service, so handing it
+          // the odometer told a driver whose plugs were changed today that
+          // they had "driven 61,000 mi since your last spark plugs" (#428).
+          // Unanchored rows still show the odometer they are inferred from.
+          ...(anchorLastServiceMileage != null
+            ? {
+                mileage: `${formatMileage(Math.max(0, currentOdometer - anchorLastServiceMileage))} since last service`,
+                ...(anchorLastServiceDate != null
+                  ? {
+                      time: `${Math.max(0, Math.round((now - anchorLastServiceDate) / MS_PER_MONTH))} mo since last service`,
+                    }
+                  : {}),
+              }
+            : { mileage: `${formatMileage(currentOdometer)} (current)` }),
           // Says which tier the number came from. "Typical" rather than "OEM"
           // when it is our class default, because claiming a manufacturer
           // schedule we do not have is the kind of false precision the
           // confidence hold exists to avoid.
           interval: `${formatMileage(bounded)} (${useOem ? "OEM" : "typical"})`,
         },
+        lastServiceAt: anchorLastServiceDate,
       });
     }
   }
@@ -825,22 +925,22 @@ export function buildMergedMaintenanceItems(
     // it once (resolutionAckedAt catches up to lastServiceDate), then it folds
     // back into Healthy. `resolvedRecordType` is the row the ack must patch:
     // anchored/minor items embed it in the id, but a `catalog-<slug>` inference
-    // item resolves via its slug-specific minor anchor instead.
+    // item resolves via its service's own anchor instead.
     const recordType = item.id.startsWith("catalog-")
-      ? minorRecordTypeForServiceSlug(item.id.slice("catalog-".length))
+      ? serviceAnchorRecordType(item.id.slice("catalog-".length))
       : item.id.replace(/^(unknown-|user-|smartcar-)/, "");
     if (!recordType) return item;
-    const rec = records?.find((r) => r.type === recordType);
-    if (!rec?.lastServiceBookingId) return item;
-    const serviced =
-      typeof rec.lastServiceDate === "number" ? rec.lastServiceDate : 0;
-    if (!serviced || (rec.resolutionAckedAt ?? 0) >= serviced) return item;
+    const stamp = latestUnackedStamp(records, recordType);
+    if (!stamp) return item;
     return {
       ...item,
-      resolvedByBookingId: String(rec.lastServiceBookingId),
-      resolvedShopName: rec.lastServiceShopName ?? null,
-      resolvedAt: serviced,
-      resolvedRecordType: recordType,
+      resolvedByBookingId: String(stamp.record.lastServiceBookingId),
+      resolvedShopName: stamp.record.lastServiceShopName ?? null,
+      resolvedAt: stamp.servicedAt,
+      resolvedRecordType: stamp.record.type,
+      // Upkeep on the part (a rotation) is logged, not "resolved" — the
+      // card says what was done instead of implying new tires (#413).
+      resolvedServiceLabel: stamp.upkeepLabel,
     };
   });
 

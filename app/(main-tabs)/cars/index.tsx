@@ -1368,7 +1368,7 @@ export default function CarsHomeScreen() {
     activeVehicle?.vin,
   );
 
-  const { mergedItems: mergedMaintenanceItems, recordsByType } = useMergedMaintenance(
+  const { mergedItems: mergedMaintenanceItems, recordsByType, lastScanAt } = useMergedMaintenance(
     activeOwnershipId,
     currentOdometer,
     activeVehicle?.make,
@@ -2579,6 +2579,7 @@ export default function CarsHomeScreen() {
               isDarkBg={isDarkBg}
               isEnriching={vehicleReadiness.status === "enriching"}
               bookableSlugs={bookableSlugs}
+              lastScanAt={lastScanAt}
               onBookNow={(id) => {
                 // Backstop for the disabled CTAs above — never open the booking
                 // flow while the vehicle is still enriching (no parts data yet).

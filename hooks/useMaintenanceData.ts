@@ -36,6 +36,7 @@ import {
 import { buildMaintenanceItems } from "@/utils/maintenanceEnrichment";
 import {
   buildMergedMaintenanceItems,
+  lastShopScanAt,
   type DriverRecommendationLike,
 } from "@/utils/mergedMaintenance";
 
@@ -237,5 +238,12 @@ export function useMergedMaintenance(
     return map;
   }, [records]);
 
-  return { mergedItems, recordsByType };
+  // When a shop last scanned the car — retires the "book a diagnostic scan"
+  // recommendation while the scan is recent (#340).
+  const lastScanAt = useMemo(
+    () => lastShopScanAt(records?.map((r) => ({ ...r, lastServiceDate: toEpoch(r.lastServiceDate) }))),
+    [records],
+  );
+
+  return { mergedItems, recordsByType, lastScanAt };
 }
