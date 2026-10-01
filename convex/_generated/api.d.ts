@@ -309,6 +309,7 @@ import type * as migrations_directorRoles from "../migrations/directorRoles.js";
 import type * as migrations_dropPrePurchaseInspection from "../migrations/dropPrePurchaseInspection.js";
 import type * as migrations_purgeVendorNames from "../migrations/purgeVendorNames.js";
 import type * as migrations_seedDataIncidents from "../migrations/seedDataIncidents.js";
+import type * as migrations_upkeepResetRepair from "../migrations/upkeepResetRepair.js";
 import type * as mileageChangeEvents from "../mileageChangeEvents.js";
 import type * as models from "../models.js";
 import type * as notificationPreferences from "../notificationPreferences.js";
@@ -977,6 +978,7 @@ declare const fullApi: ApiFromModules<{
   "migrations/dropPrePurchaseInspection": typeof migrations_dropPrePurchaseInspection;
   "migrations/purgeVendorNames": typeof migrations_purgeVendorNames;
   "migrations/seedDataIncidents": typeof migrations_seedDataIncidents;
+  "migrations/upkeepResetRepair": typeof migrations_upkeepResetRepair;
   mileageChangeEvents: typeof mileageChangeEvents;
   models: typeof models;
   notificationPreferences: typeof notificationPreferences;
