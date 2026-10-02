@@ -42,6 +42,10 @@ import {
   currentMileageBelowPurchaseMessage,
   parseMileageInput,
 } from "@/lib/pre-onboarding-mileage";
+import {
+  completePreOnboarding,
+  PRE_ONBOARDING_SAVE_ERROR,
+} from "@/lib/pre-onboarding-submission";
 
 type StepId =
   | "ownershipType"
@@ -53,6 +57,30 @@ type StepId =
 type OwnershipType = "leased" | "owned";
 type AnnualMileageBand = "light" | "avg" | "heavy" | "very_heavy";
 type UsagePattern = "mostly_local" | "mostly_highway" | "mixed";
+
+type SavedPreOnboardingProgress = {
+  _id?: string;
+  ownershipType?: string;
+  ownedSinceNew?: boolean;
+  mileageAtPurchase?: number;
+  mileageAtPurchaseNotSure?: boolean;
+  mileage?: number;
+  annualMileageBand?: string;
+  usagePattern?: string;
+};
+
+function getResumeStepIndex(owner: SavedPreOnboardingProgress): number {
+  if (owner.ownershipType !== "owned" && owner.ownershipType !== "leased") return 0;
+  if (owner.ownershipType === "leased") {
+    return typeof owner.mileage === "number" ? 2 : 1;
+  }
+  if (owner.ownedSinceNew === undefined) return 1;
+  if (owner.ownedSinceNew === false) {
+    if (owner.mileageAtPurchase === undefined && owner.mileageAtPurchaseNotSure !== true) return 2;
+    return typeof owner.mileage === "number" ? 4 : 3;
+  }
+  return typeof owner.mileage === "number" ? 3 : 2;
+}
 
 const STEP_COPY: Record<StepId, { title: string; subtitle: string }> = {
   ownershipType: {
@@ -95,8 +123,10 @@ export default function CarPreOnboardingScreen() {
   const params = useLocalSearchParams<{ vehicleOwnerId?: string; flow?: string }>();
   const { userId } = useUserFromConvex();
   const savePreOnboarding = useMutation(api.vehicles.saveVehiclePreOnboarding);
+  const savePreOnboardingProgress = useMutation(api.vehicles.saveVehiclePreOnboardingProgress);
   const [stepIndex, setStepIndex] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [ownershipType, setOwnershipType] = useState<OwnershipType | undefined>();
   const [ownedSinceNew, setOwnedSinceNew] = useState<boolean | undefined>();
   const [mileageAtPurchase, setMileageAtPurchase] = useState("");
@@ -133,18 +163,35 @@ export default function CarPreOnboardingScreen() {
     api.vehicles.listVehiclesByUser,
     userId ? { userId } : "skip",
   );
-  const seededMileageRef = useRef(false);
+  const hydratedProgressRef = useRef(false);
   useEffect(() => {
-    if (seededMileageRef.current) return;
+    if (hydratedProgressRef.current) return;
     if (!ownedVehicles || !vehicleOwnerId) return;
-    const match = (ownedVehicles as Array<{ ownership?: { _id?: string; mileage?: number } }>).find(
+    const match = (ownedVehicles as { ownership?: SavedPreOnboardingProgress }[]).find(
       (r) => r.ownership?._id === vehicleOwnerId,
     );
-    const seed = match?.ownership?.mileage;
-    if (typeof seed === "number" && seed > 0) {
-      setCurrentMileage(String(Math.round(seed)));
-      seededMileageRef.current = true;
+    const owner = match?.ownership;
+    if (!owner) return;
+
+    if (owner.ownershipType === "owned" || owner.ownershipType === "leased") {
+      setOwnershipType(owner.ownershipType);
     }
+    if (typeof owner.ownedSinceNew === "boolean") setOwnedSinceNew(owner.ownedSinceNew);
+    if (typeof owner.mileageAtPurchase === "number") {
+      setMileageAtPurchase(String(Math.round(owner.mileageAtPurchase)));
+    }
+    setMileageAtPurchaseNotSure(owner.mileageAtPurchaseNotSure === true);
+    if (typeof owner.mileage === "number" && owner.mileage >= 0) {
+      setCurrentMileage(String(Math.round(owner.mileage)));
+    }
+    if (["light", "avg", "heavy", "very_heavy"].includes(owner.annualMileageBand ?? "")) {
+      setAnnualMileageBand(owner.annualMileageBand as AnnualMileageBand);
+    }
+    if (["mostly_local", "mostly_highway", "mixed"].includes(owner.usagePattern ?? "")) {
+      setUsagePattern(owner.usagePattern as UsagePattern);
+    }
+    setStepIndex(getResumeStepIndex(owner));
+    hydratedProgressRef.current = true;
   }, [ownedVehicles, vehicleOwnerId]);
 
   const steps = useMemo(() => {
@@ -336,43 +383,89 @@ export default function CarPreOnboardingScreen() {
       setCurrentMileageErrorShown(true);
       return;
     }
-    if (!isLastStep) {
-      transitionToStep(stepIndex + 1);
-      return;
-    }
+    setIsSubmitting(true);
+    setSaveError(null);
+    try {
+      await persistCurrentStep();
+      if (!isLastStep) {
+        transitionToStep(stepIndex + 1);
+        return;
+      }
 
-    await submitAndComplete();
+      const completionError = await submitAndComplete();
+      if (completionError) setSaveError(completionError);
+    } catch (err) {
+      console.warn("[car-pre-onboarding] Failed to save progress", err);
+      setSaveError(PRE_ONBOARDING_SAVE_ERROR);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const submitAndComplete = async () => {
+  const persistCurrentStep = async () => {
+    if (!vehicleOwnerId) throw new Error("Vehicle ownership not found");
+    const id = vehicleOwnerId as Id<"vehicle_owners">;
+
+    switch (currentStep) {
+      case "ownershipType":
+        if (ownershipType) await savePreOnboardingProgress({ vehicleOwnerId: id, ownershipType });
+        return;
+      case "ownedSinceNew":
+        if (ownedSinceNew !== undefined) {
+          await savePreOnboardingProgress({ vehicleOwnerId: id, ownedSinceNew });
+        }
+        return;
+      case "mileageAtPurchase":
+        await savePreOnboardingProgress({
+          vehicleOwnerId: id,
+          mileageAtPurchase: mileageAtPurchaseNotSure ? null : parseMileageInput(mileageAtPurchase),
+          mileageAtPurchaseNotSure,
+        });
+        return;
+      case "currentMileage": {
+        const parsed = parseMileageInput(currentMileage);
+        if (parsed !== undefined) {
+          await savePreOnboardingProgress({ vehicleOwnerId: id, currentMileage: parsed });
+        }
+        return;
+      }
+      case "mileageAndUsage":
+        if (annualMileageBand && usagePattern) {
+          await savePreOnboardingProgress({
+            vehicleOwnerId: id,
+            annualMileageBand,
+            usagePattern,
+          });
+        }
+        return;
+    }
+  };
+
+  const submitAndComplete = async (): Promise<string | null> => {
     if (!vehicleOwnerId) {
       router.replace("/(main-tabs)/cars");
-      return;
+      return null;
     }
     const parsedCurrentMileage = parseMileageInput(currentMileage);
     if (parsedCurrentMileage === undefined || !ownershipType || !annualMileageBand || !usagePattern) {
-      return;
+      return PRE_ONBOARDING_SAVE_ERROR;
     }
-    try {
-      setIsSubmitting(true);
-      await savePreOnboarding({
-        vehicleOwnerId: vehicleOwnerId as Id<"vehicle_owners">,
-        ownershipType,
-        ownedSinceNew,
-        mileageAtPurchase: mileageAtPurchaseNotSure ? undefined : parseMileageInput(mileageAtPurchase),
-        currentMileage: parsedCurrentMileage,
-        annualMileageBand,
-        usagePattern,
-      });
-    } catch (err) {
-      console.warn("[car-pre-onboarding] Failed to save pre-onboarding", err);
-    } finally {
-      setIsSubmitting(false);
-      router.replace({
+    return await completePreOnboarding(
+      () => savePreOnboarding({
+          vehicleOwnerId: vehicleOwnerId as Id<"vehicle_owners">,
+          ownershipType,
+          ownedSinceNew,
+          mileageAtPurchase: mileageAtPurchaseNotSure ? undefined : parseMileageInput(mileageAtPurchase),
+          mileageAtPurchaseNotSure,
+          currentMileage: parsedCurrentMileage,
+          annualMileageBand,
+          usagePattern,
+        }),
+      () => router.replace({
         pathname: "/health-estimating",
         params: { flow, vehicleOwnerId, fromPreOnboarding: "true" },
-      });
-    }
+      }),
+    );
   };
 
   const renderQuestionContent = () => {
@@ -552,6 +645,11 @@ export default function CarPreOnboardingScreen() {
             pointerEvents="none"
           />
           <Animated.View style={[styles.footerContent, ctaLiftStyle]}>
+            {saveError ? (
+              <Text size="sm" weight="medium" color={SemanticColors.errorRed} center accessibilityRole="alert">
+                {saveError}
+              </Text>
+            ) : null}
             <Pressable
               disabled={ctaDisabled}
               onPressIn={() => { buttonScale.value = withSpring(0.97, { damping: 15, stiffness: 200 }); }}
