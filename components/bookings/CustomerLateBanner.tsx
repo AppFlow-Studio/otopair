@@ -278,7 +278,7 @@ export function CustomerLateBanner({ onReschedule }: Props) {
               <Pressable
                 style={({ pressed }) => [
                   styles.resBtn,
-                  styles.resBtnOutline,
+                  styles.resBtnPrimary,
                   pressed && styles.pressed,
                 ]}
                 onPress={() => {
@@ -293,7 +293,7 @@ export function CustomerLateBanner({ onReschedule }: Props) {
                 <Text
                   size="sm"
                   weight="semiBold"
-                  style={styles.resBtnOutlineText}
+                  style={styles.resBtnPrimaryText}
                 >
                   Got it
                 </Text>
@@ -474,12 +474,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  resBtnOutline: {
-    backgroundColor: SurfaceColors.cardSurface,
-    borderWidth: 1,
-    borderColor: SemanticColors.border,
-  },
-  resBtnOutlineText: { color: BrandColors.primary },
+  resBtnPrimary: { backgroundColor: BrandColors.secondary },
+  resBtnPrimaryText: { color: BrandColors.white },
   resHandlePill: {
     borderWidth: 1,
     borderColor: SemanticColors.border,
