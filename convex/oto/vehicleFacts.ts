@@ -96,7 +96,10 @@ async function _getVehicleFactsCore(
       q.eq("vin", vehicle.vin).eq("user_id", userId),
     )
     .unique();
-  if (!owner) throw new Error(`not authorized for vehicle ${vehicle_id}`);
+  // A removed car keeps its row (soft delete, #395) but is out of the garage.
+  if (!owner || owner.status !== "active") {
+    throw new Error(`not authorized for vehicle ${vehicle_id}`);
+  }
 
     // Pull the joined rows in parallel where possible. config first since
     // others key off it.
@@ -261,5 +264,19 @@ export const getVehicleFactsForUser = internalQuery({
     { actingUserId, vehicle_id },
   ): Promise<VehicleFactsResponse> => {
     return await _getVehicleFactsCore(ctx, actingUserId, { vehicle_id });
+  },
+});
+
+/**
+ * Current mileage for the chat's active car, resolved exactly as the vehicle
+ * tools resolve it, for the per-turn `<vehicle>` block (#425). Internal: the
+ * chat action has already matched this ownership to the acting user.
+ */
+export const getActiveVehicleMileage = internalQuery({
+  args: { ownershipId: v.id("vehicle_owners") },
+  handler: async (ctx, { ownershipId }): Promise<number | null> => {
+    const owner = await ctx.db.get(ownershipId);
+    if (!owner || owner.status !== "active") return null;
+    return (await resolveMileageForOwner(ctx, owner)).mileage;
   },
 });

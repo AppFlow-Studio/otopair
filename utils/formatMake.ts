@@ -56,6 +56,9 @@ const CANONICAL: Record<string, string> = {
   volvo: "Volvo",
 };
 
+/** Lowercase make (and common short form) → canonical make. */
+export const KNOWN_MAKES: Readonly<Record<string, string>> = CANONICAL;
+
 export function formatMake(raw: string | null | undefined): string {
   if (!raw) return "";
   const key = raw.trim().toLowerCase();

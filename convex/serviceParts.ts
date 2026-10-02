@@ -829,9 +829,13 @@ export const getPartsNeedingVerification = query({
 
     // Confirmed packages (best-effort). Absent owner → empty set; the core
     // roles we gate on (battery, brake pads) are base/non-package anyway.
+    // Removed rows stay behind (soft delete, #395) and `.first()` takes the
+    // oldest row for the VIN, so after a resale the previous owner's answers
+    // would win over the current owner's. Skip them.
     const owner = await ctx.db
       .query("vehicle_owners")
       .withIndex("by_vin", (q) => q.eq("vin", booking.vin))
+      .filter((q) => q.eq(q.field("status"), "active"))
       .first();
     const ownerSpecs = owner
       ? await ctx.db

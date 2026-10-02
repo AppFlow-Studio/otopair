@@ -31,6 +31,8 @@
 // =============================================================================
 
 import { OTO_TOOL_CATEGORY } from "./tools";
+import { serviceDateToMs } from "./statedServiceDate";
+import { canonicalServiceSlug, canonicalServiceSlugs } from "./serviceSlugs";
 
 // -----------------------------------------------------------------------------
 // Anthropic content-block types — kept loose so this file doesn't depend on
@@ -169,10 +171,12 @@ function packageRenderDirective(toolUse: ToolUseBlock): ToolResultBlock {
       // (render_service_picker → render_diagnostic_form → render_shop_carousel
       // → render_time_selector → render_booking_confirmation →
       // navigate_to_payment) — all deprecated as of Sprint 4 Day 1 Pass A.
+      // Slugs go out as catalog slugs: "first_service" and the like
+      // pre-checked nothing on the card (serviceSlugs.ts).
       return ok(
         toolUse.id,
         renderD("bookService", {
-          service_slugs: toolUse.input.service_slugs,
+          service_slugs: canonicalServiceSlugs(toolUse.input.service_slugs),
           ...(toolUse.input.diagnostic_system !== undefined
             ? { diagnostic_system: toolUse.input.diagnostic_system }
             : {}),
@@ -323,15 +327,21 @@ function sanitizeServiceClaims(
     const claim = entry as Record<string, unknown>;
     if (typeof claim.service_slug !== "string") continue;
     if (typeof claim.kind !== "string" || !VEHICLE_TRUTH_CLAIM_KINDS.has(claim.kind)) continue;
+    // A service the catalog doesn't know has nothing to save it as; the
+    // card must not offer to log it (serviceSlugs.ts).
+    const serviceSlug = canonicalServiceSlug(claim.service_slug);
+    if (!serviceSlug) continue;
     const clean: Record<string, unknown> = {
-      service_slug: claim.service_slug,
+      service_slug: serviceSlug,
       kind: claim.kind,
     };
     const serviceMileage = toFiniteNumber(claim.service_mileage);
     if (serviceMileage !== undefined) clean.service_mileage = serviceMileage;
     const serviceAgeDays = toFiniteNumber(claim.service_age_days);
     if (serviceAgeDays !== undefined) clean.service_age_days = serviceAgeDays;
-    const serviceDate = toFiniteNumber(claim.service_date);
+    // The model writes YYYY-MM-DD (#376); the card and applyVehicleTruth
+    // still take a timestamp.
+    const serviceDate = serviceDateToMs(claim.service_date);
     if (serviceDate !== undefined) clean.service_date = serviceDate;
     if (
       typeof claim.stated_confidence === "string" &&
@@ -377,7 +387,7 @@ function ok<T>(toolUseId: string, data: T): ToolResultBlock {
   };
 }
 
-function errorResult(
+export function errorResult(
   toolUseId: string,
   code: ErrorEnvelope["code"],
   message: string,

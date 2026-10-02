@@ -24,7 +24,7 @@
  */
 
 // 1. React & React Native
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, StyleSheet, Pressable, ActionSheetIOS, Platform, Alert } from 'react-native';
 
 // 2. Expo & Third-party
@@ -49,7 +49,8 @@ import { AITypingIndicator } from './AITypingIndicator';
 import { AIQuickReplies, type QuickReply } from './AIQuickReplies';
 
 // 5. Constants, hooks, types
-import { BrandColors, BorderRadius, Spacing, FontFamily, Shadows } from '@/constants/theme';
+import { BrandColors, BorderRadius, Spacing, FontFamily, Shadows, SemanticColors } from '@/constants/theme';
+import { splitMarkdownTables } from '@/lib/markdownTables';
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -147,11 +148,64 @@ function StreamingText({
     return () => clearInterval(interval);
   }, [text, isStreaming]);
 
+  return <MessageText text={displayedText} showCursor={!isComplete} />;
+}
+
+// ============================================================================
+// MESSAGE TEXT (with Markdown tables)
+// ============================================================================
+
+// Oto sometimes answers with a Markdown table. Draw it instead of printing its
+// pipes (#466). Text without a table renders exactly as it did before.
+function MessageText({ text, showCursor }: { text: string; showCursor?: boolean }) {
+  const blocks = useMemo(() => splitMarkdownTables(text), [text]);
+  const cursor = showCursor ? <Text style={styles.cursor}>|</Text> : null;
+
+  if (!blocks.some((block) => block.type === 'table')) {
+    return (
+      <Text style={styles.messageText}>
+        {text}
+        {cursor}
+      </Text>
+    );
+  }
+
   return (
-    <Text style={styles.messageText}>
-      {displayedText}
-      {!isComplete && <Text style={styles.cursor}>|</Text>}
-    </Text>
+    <View style={styles.messageBlocks}>
+      {blocks.map((block, i) =>
+        block.type === 'table' ? (
+          <MessageTable key={i} header={block.header} rows={block.rows} />
+        ) : (
+          <Text key={i} style={styles.messageText}>
+            {block.text}
+            {i === blocks.length - 1 ? cursor : null}
+          </Text>
+        ),
+      )}
+    </View>
+  );
+}
+
+function MessageTable({ header, rows }: { header: string[]; rows: string[][] }) {
+  return (
+    <View style={styles.table}>
+      <View style={[styles.tableRow, styles.tableHeaderRow]}>
+        {header.map((cell, c) => (
+          <Text key={c} weight="semiBold" style={[styles.tableCell, styles.tableHeaderText]}>
+            {cell}
+          </Text>
+        ))}
+      </View>
+      {rows.map((row, r) => (
+        <View key={r} style={[styles.tableRow, styles.tableBodyRow]}>
+          {row.map((cell, c) => (
+            <Text key={c} style={[styles.tableCell, styles.tableCellText]}>
+              {cell}
+            </Text>
+          ))}
+        </View>
+      ))}
+    </View>
   );
 }
 
@@ -439,9 +493,7 @@ export function AIMessageBubble({
             {isStreaming && !hasReasoning ? (
               <StreamingText text={message.content} isStreaming={isStreaming} />
             ) : (
-              <Text style={styles.messageText}>
-                {message.content}
-              </Text>
+              <MessageText text={message.content} />
             )}
           </Animated.View>
         )}
@@ -575,6 +627,40 @@ const styles = StyleSheet.create({
   cursor: {
     color: BrandColors.secondary,
     fontWeight: 'bold',
+  },
+  // Markdown table (#466)
+  messageBlocks: {
+    gap: Spacing.sm,
+  },
+  table: {
+    borderWidth: 1,
+    borderColor: SemanticColors.border,
+    borderRadius: BorderRadius.md,
+    overflow: 'hidden',
+  },
+  tableRow: {
+    flexDirection: 'row',
+  },
+  tableHeaderRow: {
+    backgroundColor: SemanticColors.surface,
+  },
+  tableBodyRow: {
+    borderTopWidth: 1,
+    borderTopColor: SemanticColors.border,
+  },
+  // Equal-width columns; long cells wrap inside their column.
+  tableCell: {
+    flex: 1,
+    paddingHorizontal: Spacing.sm + 2,
+    paddingVertical: Spacing.sm,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  tableHeaderText: {
+    color: BrandColors.primary,
+  },
+  tableCellText: {
+    color: BrandColors.black,
   },
   // Sections
   sectionsContainer: {

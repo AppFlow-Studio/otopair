@@ -101,6 +101,7 @@ import { SettingsRow } from "@/components/settings/SettingsRow";
 import { useAuth, useUser } from "@clerk/clerk-expo";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
+import { useClerkProfileImage } from "@/hooks/useClerkProfileImage";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
@@ -284,16 +285,18 @@ export function SettingsContent({
     [me, data.firstName, data.lastName],
   );
 
-  // Only show real user-uploaded photos. `profile_photo_url` is only
-  // trusted when `profile_photo_storage_id` is set — otherwise it's the
-  // Clerk OAuth default (purple gradient) that got synced on signup,
-  // and the branded blue→white gradient initials placeholder is better.
+  // Uploaded photo first. `profile_photo_url` is only trusted when
+  // `profile_photo_storage_id` is set — otherwise it's the Clerk OAuth
+  // default (purple gradient) that got synced on signup. Without an
+  // upload, the Clerk account's own photo; with none, the branded
+  // blue→white gradient initials placeholder.
+  const clerkImage = useClerkProfileImage();
   const profilePhotoUri = useMemo(() => {
     if (me?.profile_photo_storage_id && me?.profile_photo_url)
       return me.profile_photo_url;
     if (data.profilePhotoUri) return data.profilePhotoUri;
-    return null;
-  }, [me?.profile_photo_storage_id, me?.profile_photo_url, data.profilePhotoUri]);
+    return clerkImage;
+  }, [me?.profile_photo_storage_id, me?.profile_photo_url, data.profilePhotoUri, clerkImage]);
 
   // Handle = email prefix.
   const handle = useMemo<string | null>(() => {
@@ -429,8 +432,12 @@ export function SettingsContent({
         end={{ x: 1, y: 1 }}
         style={styles.avatarPlaceholder}
       >
+        {/* The slider clips round itself, like the Home button: the
+            gradient doesn't clip, so a square clip let a sliding photo
+            show past the circle with a flat edge. */}
         <AvatarSlider
           size={72}
+          style={styles.avatarClip}
           panels={[
             profilePhotoUri ? (
               <Image
@@ -931,6 +938,8 @@ const styles = StyleSheet.create({
   avatarImage: {
     width: 72,
     height: 72,
+  },
+  avatarClip: {
     borderRadius: 36,
   },
   avatarPlaceholder: {

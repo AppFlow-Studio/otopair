@@ -70,6 +70,9 @@ export { Input, PasswordInput, SearchInput, type InputProps } from "./Input";
 // Error Modal
 export { ErrorOccurredModal } from "./ErrorOccurredModal";
 
+// Alert.alert-style dialog in the app's look (shown via lib/themed-alert)
+export { ThemedAlertModal } from "./ThemedAlertModal";
+
 // Fade In Stagger Animation Component
 export {
     FadeInStagger,

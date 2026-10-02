@@ -24,7 +24,7 @@
 
 // 1. React & React Native
 import React, { useEffect, useState, useRef, useCallback } from "react";
-import { View, ScrollView, StyleSheet, Pressable, Alert, Platform, Keyboard, useWindowDimensions, Dimensions, UIManager, type NativeSyntheticEvent, type NativeScrollEvent } from "react-native";
+import { View, ScrollView, StyleSheet, Pressable, Alert, AppState, Platform, Keyboard, useWindowDimensions, Dimensions, UIManager, type NativeSyntheticEvent, type NativeScrollEvent } from "react-native";
 
 // 2. Expo & Third-party
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -33,6 +33,8 @@ import * as SecureStore from "expo-secure-store";
 import Animated, { useAnimatedStyle, useSharedValue, withTiming, withSpring, Easing, interpolate, runOnJS } from "react-native-reanimated";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { haptics } from "@/lib/haptics";
+import { anchoredConversationVin } from "@/lib/otoConversationVehicle";
+import { themedPrompt } from "@/lib/themed-alert";
 import { useToast } from "@/hooks/useToast";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { useFocusEffect } from "expo-router";
@@ -281,7 +283,6 @@ export default function AIChatScreen() {
 
   // Oto AI action wiring — feature-flagged.
   const sendMessageAction = useAction(api.oto.chat.sendMessage);
-  const createConversation = useMutation(api.ai_conversations.create);
   const deleteConversation = useMutation(api.ai_conversations.remove);
   const renameConversation = useMutation(api.ai_conversations.rename);
   const setConversationPinned = useMutation(api.ai_conversations.setPinned);
@@ -402,6 +403,22 @@ export default function AIChatScreen() {
       setIsCarConfirmed(true);
     }
   }, [isCarConfirmed, greetingVehicles, state.messages.length]);
+
+  // #430: the header shows the car THIS conversation is about. Each
+  // conversation is anchored server-side (`ai_conversations.vehicle_id`) and
+  // Oto answers about that car regardless of the picker, so opening a chat
+  // from Recents must follow the anchor instead of keeping the last car shown.
+  // An effect rather than the Recents tap handler, so it also corrects itself
+  // when the garage loads after the tap. No anchor, or an anchored car no
+  // longer owned: keep the current car — that is what the server falls back
+  // to (envelope.ts pickActiveVehicleRow).
+  React.useEffect(() => {
+    const vin = anchoredConversationVin(convexConversationsRaw, convexConversationId, rawVehicles);
+    const card = vin ? greetingVehicles.find((v) => v.vin === vin) : undefined;
+    if (!card) return;
+    setSelectedVehicleVin(card.vin);
+    setSelectedVehicle((prev) => (prev?.vin === card.vin ? prev : card));
+  }, [convexConversationId, convexConversationsRaw, rawVehicles, greetingVehicles]);
 
   // Attachment panel state
   const [isAttachmentOpen, setIsAttachmentOpen] = useState(false);
@@ -618,19 +635,12 @@ export default function AIChatScreen() {
       });
 
       try {
-        // Lazy-create the ai_conversations row on the first send. Same
-        // guard handleSend used; lives in the helper so every input
-        // surface (not just typed Send) gets the same treatment.
-        let conversationId = convexConversationId;
-        if (!conversationId) {
-          conversationId = await createConversation({
-            user_id: convexUser._id as Id<"users">,
-            session_id: sessionIdRef.current,
-          });
-          setConvexConversationId(conversationId);
-        }
-
+        // A new chat's first message goes without a conversation id: the
+        // action creates the conversation, so the send is one request. The
+        // old create-then-send round trip lost the question when Android
+        // killed the app in between (#433).
         const {
+          conversationId: turnConversationId,
           text,
           assistantMessageId,
           userMessageId,
@@ -644,7 +654,9 @@ export default function AIChatScreen() {
           reasoning,
           sources,
         } = await sendMessageAction({
-          conversationId,
+          ...(convexConversationId
+            ? { conversationId: convexConversationId }
+            : { sessionId: sessionIdRef.current }),
           message: messageText,
           // Pass the frontend's vehicle-picker selection so the action
           // doesn't fall back to "most recently added" when the user has
@@ -654,6 +666,9 @@ export default function AIChatScreen() {
             ? { replaceFromMessageId: replaceFrom.dbId as Id<"ai_messages"> }
             : {}),
         });
+        if (!convexConversationId && turnConversationId) {
+          setConvexConversationId(turnConversationId);
+        }
 
         // Record-confirmation envelope — fired when Oto detects a symptom
         // contradicts a self_reported maintenance record and wants the user
@@ -793,7 +808,6 @@ export default function AIChatScreen() {
       isProcessing,
       convexUser?._id,
       convexConversationId,
-      createConversation,
       sendMessageAction,
       selectedVehicleVin,
       rawVehicles,
@@ -1036,13 +1050,21 @@ export default function AIChatScreen() {
   // for the first to finish and then play. Stop first; tapping the reply that
   // is playing just stops it.
   const [speakingId, setSpeakingId] = useState<string | null>(null);
-  const handleSpeak = useCallback((id: string, content: string) => {
-    Speech.stop();
+  // Bumped by every tap and every stop, so only the latest request speaks.
+  const speakSeqRef = useRef(0);
+  const handleSpeak = useCallback(async (id: string, content: string) => {
+    const seq = ++speakSeqRef.current;
     if (speakingId === id) {
+      Speech.stop();
       setSpeakingId(null);
       return;
     }
     setSpeakingId(id);
+    // Android's speak() always appends to the native queue, so an unawaited
+    // stop() let rapid taps stack repeats. Wait for the queue to drain, and
+    // drop this request if a newer tap or a stop came in meanwhile.
+    await Speech.stop();
+    if (seq !== speakSeqRef.current) return;
     // Only clear if this reply is still the current one: the stopped reply's
     // onStopped arrives after the next one's id is set.
     const clear = () => setSpeakingId((current) => (current === id ? null : current));
@@ -1056,10 +1078,27 @@ export default function AIChatScreen() {
     showToast("Playing audio...", Volume2);
   }, [speakingId, showToast]);
 
-  // Leaving the chat stops whatever is being read aloud.
-  useEffect(() => () => {
+  // #409: leaving the chat stops whatever is being read aloud. Tabs stay
+  // mounted (and freeze on Android), so an unmount cleanup never fired —
+  // stop on blur, on backgrounding, and when the conversation changes.
+  const stopSpeaking = useCallback(() => {
+    speakSeqRef.current += 1;
     Speech.stop();
+    setSpeakingId(null);
   }, []);
+  useFocusEffect(useCallback(() => stopSpeaking, [stopSpeaking]));
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (next) => {
+      if (next !== "active") stopSpeaking();
+    });
+    return () => {
+      sub.remove();
+      stopSpeaking();
+    };
+  }, [stopSpeaking]);
+  useEffect(() => {
+    stopSpeaking();
+  }, [convexConversationId, stopSpeaking]);
 
   // Sprint 4 — thumbs up / down open the feedback modal so the user can add
   // a comment + tags. The modal submits to api.ai_feedback.submit; the row
@@ -1204,7 +1243,8 @@ export default function AIChatScreen() {
 
   const handleRenameConversation = useCallback(
     (conversationId: string, currentTitle: string) => {
-      Alert.prompt(
+      // Not Alert.prompt: it is iOS-only and did nothing on Android (#439).
+      themedPrompt(
         "Rename conversation",
         undefined,
         [
@@ -1225,7 +1265,6 @@ export default function AIChatScreen() {
             },
           },
         ],
-        "plain-text",
         currentTitle,
       );
     },
@@ -1515,8 +1554,11 @@ export default function AIChatScreen() {
                       New Chat
                     </Text>
                   </Pressable>
+                  {/* Same action as the MenuView's Change Vehicle below: a fresh
+                      chat clears the confirmed car, so the greeting's car
+                      picker comes back. This used to only close the menu. */}
                   <Pressable
-                    onPress={() => { closeRightMenu(); }}
+                    onPress={() => { closeRightMenu(); startNewChat(); }}
                     style={({ pressed }) => [styles.otoExpandedItem, pressed && { opacity: 0.6 }]}
                   >
                     <CarFront size={16} color="#000000" />

@@ -78,6 +78,41 @@ describe("applyVehicleTruth", () => {
     });
   });
 
+  // Haiku's own names for catalog services (2026-10-01): every air-filter log
+  // wrote nothing while the card said "logged". A card saved before the
+  // dispatcher mapped them must still save, and a claim with nothing to save
+  // must not come back as logged.
+  describe("service names outside the catalog", () => {
+    it("saves an air-filter claim under the filters record", async () => {
+      const t = makeT(); const s = await seed(t);
+      const res = await t.withIdentity(ident).mutation(api.vehicleTruth.applyVehicleTruth, {
+        vehicle_id: s.vehicleId,
+        service_claims: [{ service_slug: "cabin_air_filter_replacement", kind: "completed" }],
+      });
+      expect(res.servicesCompleted).toEqual(["filter_replacement"]);
+      const rec: any = await t.run((ctx: any) =>
+        ctx.db.query("maintenance_records")
+          .withIndex("by_vehicle_and_type", (q: any) => q.eq("vehicleOwnerId", s.ownerId).eq("type", "filters"))
+          .unique());
+      expect(rec).not.toBeNull();
+    });
+
+    it("doesn't report a claim it had nothing to save as logged", async () => {
+      const t = makeT(); const s = await seed(t);
+      const res = await t.withIdentity(ident).mutation(api.vehicleTruth.applyVehicleTruth, {
+        vehicle_id: s.vehicleId,
+        service_claims: [{ service_slug: "wiper_blade_replacement", kind: "completed" }],
+      });
+      expect(res.ok).toBe(true);
+      expect(res.servicesCompleted).toEqual([]);
+      const recs: any[] = await t.run((ctx: any) =>
+        ctx.db.query("maintenance_records")
+          .withIndex("by_vehicle_and_type", (q: any) => q.eq("vehicleOwnerId", s.ownerId))
+          .collect());
+      expect(recs).toHaveLength(0);
+    });
+  });
+
   // Past-dated completed service — "I did my oil at 89,000 (now at 90,000)" /
   // "a week ago". The record's anchor must land on the PAST mileage/date so the
   // maintenance pipeline projects next-due from THEN, not from now/current.

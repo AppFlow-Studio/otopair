@@ -47,6 +47,7 @@ import {
 } from "@/components/shared-ui";
 import { api } from "@/convex/_generated/api";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
+import { useClerkProfileImage } from "@/hooks/useClerkProfileImage";
 import { useOnboardingPersistence } from "@/hooks/useOnboardingPersistence";
 import { useToast } from "@/hooks/useToast";
 import { OnboardingSurfaceColors } from "@/components/onboarding/onboardingColors";
@@ -199,11 +200,19 @@ export default function EditProfileScreen() {
     };
   }, [scrollFocusedFieldIntoView]);
 
+  // The photo the user uploaded, the one this screen edits. `profile_photo_url`
+  // is only a real upload when `profile_photo_storage_id` is set; without one
+  // it is the Clerk OAuth default synced at signup. Seeding the editor with a
+  // Clerk image brought a removed photo straight back on the next visit, so
+  // the Clerk account photo stays out of the edit state: it is only what the
+  // avatar shows when there is no upload (`clerkImageUri`), as on Home.
   const profilePhotoUri = useMemo(() => {
-    if (me?.profile_photo_url) return me.profile_photo_url;
+    if (me?.profile_photo_storage_id && me?.profile_photo_url)
+      return me.profile_photo_url;
     if (data.profilePhotoUri) return data.profilePhotoUri;
-    return clerkUser?.imageUrl ?? null;
-  }, [me?.profile_photo_url, data.profilePhotoUri, clerkUser?.imageUrl]);
+    return null;
+  }, [me?.profile_photo_storage_id, me?.profile_photo_url, data.profilePhotoUri]);
+  const clerkImageUri = useClerkProfileImage();
 
   const initials = useMemo(() => {
     const first = (
@@ -810,9 +819,18 @@ export default function EditProfileScreen() {
     normalizedLastName !== currentLastName ||
     emailChanged ||
     phoneChanged;
+  // A new or removed photo is a change on its own; Save used to stay greyed
+  // out until a text field changed too.
+  const isPhotoChanged = editPhotoUri !== profilePhotoUri;
+  // Removing the upload falls back to the Clerk account photo, then initials.
+  const avatarUri = editPhotoUri ?? clerkImageUri;
   const isPhoneValidForSave = !phoneChanged || isValidPhoneNumber(phone, getCallingCode());
   const isEmailValidForSave = !emailChanged || isValidEmailAddress(email);
-  const canSave = !isSaving && isTextFieldChanged && isPhoneValidForSave && isEmailValidForSave;
+  const canSave =
+    !isSaving &&
+    (isTextFieldChanged || isPhotoChanged) &&
+    isPhoneValidForSave &&
+    isEmailValidForSave;
   const isIOS26Plus =
     Platform.OS === "ios" && parseInt(String(Platform.Version), 10) >= 26;
   const bottomActionPadding = insets.bottom + (isIOS26Plus ? 80 : 100);
@@ -867,9 +885,9 @@ export default function EditProfileScreen() {
                 style={styles.avatarWrapper}
                 onPress={() => setShowPhotoOptions(true)}
               >
-                {editPhotoUri ? (
+                {avatarUri ? (
                   <Image
-                    source={{ uri: editPhotoUri }}
+                    source={{ uri: avatarUri }}
                     style={styles.avatarImage}
                   />
                 ) : (

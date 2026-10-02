@@ -85,9 +85,15 @@ async function findOwnerForBooking(ctx: any, booking: any) {
     .first();
   if (byVinUser) return byVinUser;
 
+  // The fallback is some OTHER car of theirs, so only one still in the garage.
+  // (The exact pairing above stays unfiltered: it is this booking's own car,
+  // and saveOwnerProfileAnswers inserts a row when nothing is found — a second
+  // row for the same vin+user would break every `.unique()` read of it.)
   return await ctx.db
     .query("vehicle_owners")
-    .withIndex("by_user_id", (q: any) => q.eq("user_id", booking.user_id))
+    .withIndex("by_user_status", (q: any) =>
+      q.eq("user_id", booking.user_id).eq("status", "active"),
+    )
     .first();
 }
 

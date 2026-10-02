@@ -36,7 +36,8 @@ import {
   computeVehicleHealthScore,
   computeProjectedHealthScore,
 } from "../../utils/healthScore";
-import { canonicalWarningLights } from "../../lib/warningLightVocab";
+import { canonicalWarningLights, toCanonicalLight } from "../../lib/warningLightVocab";
+import { OTO_LOCAL_TIMEZONE } from "./localTime";
 import {
   buildMergedMaintenanceItems,
   type DriverRecommendationLike,
@@ -92,7 +93,38 @@ function toEpoch(value: string | number | undefined): number | undefined {
   return Number.isNaN(parsed) ? undefined : parsed;
 }
 
-function describeKnownIssues(knownIssues?: string[]): string[] | undefined {
+type LightEvent = Pick<Doc<"known_issue_events">, "code" | "action" | "source" | "source_detail" | "created_at">;
+
+// Where a light on the record came from. Given a bare "Temperature /
+// overheating warning light", Oto told the user "you mentioned a temperature
+// light" when a shop's inspection had flagged it (2026-10-01 runs).
+function describeLightSource(event: LightEvent | undefined): string {
+  // No logged event, or the latest one cleared it and something unlogged
+  // put it back: the source isn't known.
+  if (!event || event.action !== "added") return "on the car's record";
+  const day = new Date(event.created_at).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: OTO_LOCAL_TIMEZONE,
+  });
+  switch (event.source) {
+    case "mechanic_inspection":
+      // source_detail is the shop's name here; the other sources store ids.
+      return `flagged at a mechanic inspection at ${event.source_detail ?? "the shop"} on ${day}`;
+    case "check_in":
+      return `reported by the driver in a check-in on ${day}`;
+    case "oto":
+      return `confirmed by the driver in an Oto chat on ${day}`;
+    case "service_completion":
+      return `noted at a service visit on ${day}`;
+  }
+}
+
+/** `events` newest first, so the first one for a light is its latest change. */
+export function describeKnownIssues(
+  knownIssues?: string[],
+  events: readonly LightEvent[] = [],
+): string[] | undefined {
   // Format- and vocabulary-agnostic: canonicalWarningLights scans the whole
   // array (so the flat Oto/check-in shape works, not just the sentinel-prefixed
   // onboarding shape) and folds symptom aliases (brake_warning → abs) onto their
@@ -100,7 +132,11 @@ function describeKnownIssues(knownIssues?: string[]): string[] | undefined {
   // logged in the flat shape was described as "didn't specify which" or dropped.
   const lights = canonicalWarningLights(knownIssues);
   if (lights.length === 0) return undefined;
-  return lights.map((id) => WARNING_LIGHT_LABELS[id] ?? `Unrecognized warning light: ${id}`);
+  return lights.map((id) => {
+    const label = WARNING_LIGHT_LABELS[id] ?? `Unrecognized warning light: ${id}`;
+    const latest = events.find((e) => toCanonicalLight(e.code) === id);
+    return `${label} — ${describeLightSource(latest)}`;
+  });
 }
 
 // -----------------------------------------------------------------------------
@@ -322,7 +358,10 @@ async function loadVehicleContextForUser(
       q.eq("vin", vehicle.vin).eq("user_id", userId),
     )
     .unique();
-  if (!owner) throw new Error(`vehicle_owner not found for vehicle ${vehicleId}`);
+  // A removed car keeps its row (soft delete, #395) but is out of the garage.
+  if (!owner || owner.status !== "active") {
+    throw new Error(`vehicle_owner not found for vehicle ${vehicleId}`);
+  }
 
   const records: Doc<"maintenance_records">[] = await ctx.db
     .query("maintenance_records")
@@ -740,6 +779,12 @@ async function _getVehicleHealthCore(
     await loadHealthScoreWeights(ctx),
   );
 
+  const lightEvents: Doc<"known_issue_events">[] = await ctx.db
+    .query("known_issue_events")
+    .withIndex("by_vehicle_owner_id", (q: any) => q.eq("vehicle_owner_id", owner._id))
+    .order("desc")
+    .take(100);
+
   // K5: scope declaration first, item list second. Static per response — it
   // describes what this query is capable of knowing, not what this vehicle's
   // data happens to say.
@@ -751,7 +796,7 @@ async function _getVehicleHealthCore(
     items: scoringItems
       .map(enrichUrgentItem)
       .map((item) => toAiShape(item, provenanceByType)),
-    known_issues: describeKnownIssues(knownIssues),
+    known_issues: describeKnownIssues(knownIssues, lightEvents),
   };
 }
 

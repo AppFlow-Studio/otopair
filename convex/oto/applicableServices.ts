@@ -68,7 +68,8 @@ export const listServicesForUserVehicle = internalQuery({
         q.eq("vin", vehicle!.vin).eq("user_id", actingUserId),
       )
       .first();
-    if (!owner) return unfiltered;
+    // A removed car keeps its row (soft delete, #395) but is no longer theirs.
+    if (!owner || owner.status !== "active") return unfiltered;
 
     const config = await ctx.db.get(vehicle.vehicle_config_id);
     if (!config?.engine_id) return unfiltered;

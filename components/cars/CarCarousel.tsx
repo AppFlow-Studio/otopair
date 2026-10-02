@@ -2207,7 +2207,19 @@ export function CarCarousel({
   const rotateToIndex = useCallback((targetIndex: number) => {
     lastUpdatedIndex.value = targetIndex;
     isUserAnimating.current = true;
-    
+
+    // Commit the pick to the shared store now, not when the spin ends. The
+    // end-of-spin commit goes through Effect B on this screen, and Android
+    // freezes blurred tabs (freezeOnBlur) — leave Cars mid-spin and it never
+    // lands, so Home, booking and Oto keep the previous car (#399). Setting
+    // the ref first makes Effect A treat this write as ours, not a sheet pick
+    // it should rotate for.
+    const targetVin = sortedVehicles[targetIndex]?.id.toUpperCase().trim();
+    if (targetVin) {
+      prevStoreVinRef.current = targetVin;
+      useVehicleStore.getState().selectVehicle(targetVin);
+    }
+
     const currentRotationInSteps = Math.round(rotation.value / anglePerItem);
     const currentIndex = (((-currentRotationInSteps % sortedVehicles.length) + sortedVehicles.length) % sortedVehicles.length);
     
@@ -2234,7 +2246,7 @@ export function CarCarousel({
     if (showBottomSheet) {
       closeBottomSheet();
     }
-  }, [anglePerItem, sortedVehicles.length, showBottomSheet, finishAnimation, SETTLE_EASING]);
+  }, [anglePerItem, sortedVehicles, showBottomSheet, finishAnimation, SETTLE_EASING]);
 
   // Two-way bridge between carousel and `useVehicleStore`.
   //

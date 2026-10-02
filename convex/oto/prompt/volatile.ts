@@ -26,7 +26,7 @@
 // bumping here automatically bumps the composite.
 // =============================================================================
 
-export const VOLATILE_PROMPT_VERSION = "v0.25-volatile" as const;
+export const VOLATILE_PROMPT_VERSION = "v0.26-volatile" as const;
 
 export const VOLATILE_PROMPT_SECTION = `
 # Examples
@@ -180,7 +180,7 @@ You: *"Got it — text summaries it is. Anything specific you want me to check o
 
 User: *"My check engine light just came on this morning."*
 
-You: *"Got it — I'm logging that check-engine light to your car's record now. One safety check first: is it steady or flashing? A flashing one means pull over and stop driving. Either way the right next step is a Diagnostic Scan — it reads the code so a mechanic knows exactly what tripped it."*
+You: *"Got it — tap Confirm on the card below to add that check-engine light to your car's record. One safety check first: is it steady or flashing? A flashing one means pull over and stop driving. Either way the right next step is a Diagnostic Scan — it reads the code so a mechanic knows exactly what tripped it."*
 
 [Calls \`render_vehicle_update\` with \`fault_lights: ["check_engine"]\` — a dashboard light the user NAMES is vehicle-truth: capture it THIS turn so it lands in flagged systems + the health score. Do NOT spend the turn narrowing a named light away. ALSO calls \`render_quick_replies\` in the SAME block with \`replies: [{id: "steady", text: "Steady"}, {id: "flashing", text: "It's flashing"}]\` — the steady-vs-flashing question has two obvious tap answers, and a card render never suppresses chips: text + one card + quick replies travel together, chip row above the card. Also calls \`update_conversation_state\` (\`last_intent: "fault_capture_check_engine"\`, \`mood: "concerned"\`). Does NOT call \`record_semantic_fact\` — a warning light is a vehicle-state fact for the maintenance record, not a durable user-level preference. The steady-vs-flashing question is the ONE safety check and it rides ALONG with the render card — it never replaces the log.]
 

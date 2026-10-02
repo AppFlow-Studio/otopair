@@ -69,6 +69,7 @@ import { X } from "lucide-react-native";
 import { SettingsContent } from "@/components/settings/SettingsContent";
 import { SettingsContainerTransformOverlay } from "@/components/settings/SettingsContainerTransformOverlay";
 import { api } from "@/convex/_generated/api";
+import { useClerkProfileImage } from "@/hooks/useClerkProfileImage";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import {
   useSettingsOverlayStore,
@@ -175,13 +176,14 @@ function IOSSettingsOverlay({ onUnmount }: { onUnmount: () => void }) {
   // Trust `profile_photo_url` only when `profile_photo_storage_id` is
   // set; otherwise it's Clerk's default OAuth gradient that got synced
   // at signup. Matches the chain in ProfileInitialsButton +
-  // SettingsContent so all three avatars agree.
+  // SettingsContent so all three avatars agree, Clerk photo default included.
+  const clerkImage = useClerkProfileImage();
   const photoUri = useMemo(() => {
     if (me?.profile_photo_storage_id && me?.profile_photo_url)
       return me.profile_photo_url;
     if (storedPhoto) return storedPhoto;
-    return null;
-  }, [me?.profile_photo_storage_id, me?.profile_photo_url, storedPhoto]);
+    return clerkImage;
+  }, [me?.profile_photo_storage_id, me?.profile_photo_url, storedPhoto, clerkImage]);
 
   // `settled` is true only when the open spring has fully landed at
   // progress=1. While settled, we hand off the avatar from the floating

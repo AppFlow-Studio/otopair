@@ -28,13 +28,12 @@ import Animated, {
 } from 'react-native-reanimated';
 import Carousel from 'react-native-reanimated-carousel';
 import { Image } from 'expo-image';
-import { Car } from 'lucide-react-native';
 
 // 3. Shared UI (design system)
 import { Text } from '@/components/shared-ui';
 
 // 4. Constants, hooks, types
-import { BrandColors, BorderRadius, Spacing, FontFamily } from '@/constants/theme';
+import { BrandColors, Spacing, FontFamily } from '@/constants/theme';
 
 // ============================================================================
 // TYPES
@@ -71,6 +70,10 @@ const SCREEN_WIDTH = Dimensions.get('window').width;
 // the pager should surface only vehicles the user actually owns.
 const MOCK_VEHICLES: VehicleCard[] = [];
 
+// The covered car the Cars screen shows for a car without a photo. Oto drew a
+// generic car icon instead, so one car looked different on the two screens (#260).
+const FALLBACK_VEHICLE_IMAGE = require('@/assets/images/covered-car.png');
+
 // ============================================================================
 // VEHICLE CARD (image + shadow only — text is rendered separately for crossfade)
 // ============================================================================
@@ -87,6 +90,7 @@ function VehicleCardItem({
   pulseScale: SharedValue<number>;
 }) {
   const pressScale = useSharedValue(1);
+  const [imageFailed, setImageFailed] = useState(false);
 
   const pressStyle = useAnimatedStyle(() => ({
     transform: [{ scale: pressScale.value * pulseScale.value }],
@@ -108,31 +112,19 @@ function VehicleCardItem({
         onPressOut={confirmed ? undefined : handlePressOut}
         style={styles.vehicleCard}
       >
-        {vehicle.localImage ? (
-          <Image
-            source={vehicle.localImage}
-            style={styles.vehicleImage}
-            contentFit="contain"
-            transition={0}
-            placeholder={null}
-            cachePolicy="memory-disk"
-            recyclingKey={vehicle.vin}
-          />
-        ) : vehicle.imageUrl ? (
-          <Image
-            source={{ uri: vehicle.imageUrl }}
-            style={styles.vehicleImage}
-            contentFit="contain"
-            transition={0}
-            placeholder={null}
-            cachePolicy="memory-disk"
-            recyclingKey={vehicle.vin}
-          />
-        ) : (
-          <View style={styles.vehicleImagePlaceholder}>
-            <Car size={64} color="#9CA3AF" />
-          </View>
-        )}
+        <Image
+          source={
+            vehicle.localImage ??
+            (vehicle.imageUrl && !imageFailed ? { uri: vehicle.imageUrl } : FALLBACK_VEHICLE_IMAGE)
+          }
+          style={styles.vehicleImage}
+          contentFit="contain"
+          transition={0}
+          placeholder={null}
+          cachePolicy="memory-disk"
+          recyclingKey={vehicle.vin}
+          onError={() => setImageFailed(true)}
+        />
         {/* Grounding shadow */}
         <View style={styles.groundShadow} />
       </Pressable>
@@ -397,14 +389,6 @@ const styles = StyleSheet.create({
   vehicleImage: {
     width: 180,
     height: 120,
-  },
-  vehicleImagePlaceholder: {
-    width: 180,
-    height: 120,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.03)',
-    borderRadius: BorderRadius.lg,
   },
   groundShadow: {
     width: 108,

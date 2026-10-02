@@ -18,8 +18,8 @@
 //   • snake_case tool names (the AI reads these)
 //   • snake_case service slugs (e.g. "oil_change") — matches the production
 //     services.slug column (seeded by convex/seeds/seedServices.ts).
-//     NEVER PROPOSE NEW SLUGS. See OTOPAIR_SERVICE_SLUGS at the bottom of this
-//     file for the canonical 23. See docs/oto-ai/slug-drift-remediation.md for
+//     NEVER PROPOSE NEW SLUGS. See OTOPAIR_SERVICE_SLUGS below the tool
+//     schema type for the canonical 23. See docs/oto-ai/slug-drift-remediation.md for
 //     the kebab-case dead-taxonomy audit.
 //   • Tool inputs scoped to what the AI knows from <user> / <vehicle> /
 //     <conversation_history>. NO user_id / auth_token — dispatcher injects.
@@ -40,6 +40,61 @@ export interface OtoToolSchema {
     required?: string[];
   };
 }
+
+// Canonical service slugs — production source of truth is the Convex
+// `services` table, populated by `convex/seeds/seedServices.ts`. Verified
+// against a production CSV dump on 2026-05-11.
+//
+// FORMAT IS snake_case. Several other files in this repo still reference an
+// older kebab-case taxonomy that no longer matches production —
+// see `docs/oto-ai/slug-drift-remediation.md` for the full audit. Do not use
+// kebab-case slugs anywhere in Oto AI tool surface.
+//
+// NEVER add to this list without first adding the service to `convex/services`
+// (via the canonical seed) and confirming it surfaces in `services.list`.
+//
+// Declared above the tool arrays: the booking and save cards' slug enums read
+// it while this module loads.
+export const OTOPAIR_SERVICE_SLUGS = [
+  // Diagnostics
+  "diagnostic_scan",
+  "pre_purchase_inspection",
+  "check_engine_light",
+  // Compliance
+  "state_inspection",
+  "emissions_test",
+  // Routine Maintenance
+  "oil_change",
+  "filter_replacement",        // bundled: engine air filter + cabin air filter
+  "spark_plugs",
+  "timing_belt",
+  "coolant_flush",
+  "transmission_service",
+  // Tires
+  "tire_rotation",
+  "tire_balance",
+  "wheel_alignment",
+  "tire_replacement",
+  // Brakes
+  "brake_pad_replacement",
+  "rotor_replacement",
+  "brake_fluid_flush",
+  // Battery
+  "battery_test",
+  "battery_replacement",
+  // Fluids
+  "power_steering_flush",
+  "differential_service",
+  "fuel_system_cleaning",
+] as const;
+
+export type OtopairServiceSlug = (typeof OTOPAIR_SERVICE_SLUGS)[number];
+
+// The slugs whose service isn't plain from the name. The app shows
+// timing_belt as "Drive belt replacement" (constants/serviceTaxonomy.ts).
+const SLUG_GLOSS =
+  "filter_replacement = the engine air filter and the cabin air filter (one service covers both); timing_belt = drive belt replacement; " +
+  "check_engine_light = diagnosing a lit check-engine light; diagnostic_scan = a mechanic diagnosing a symptom; pre_purchase_inspection = inspecting a car before buying it.";
 
 // -----------------------------------------------------------------------------
 // DATA TOOLS — execute Convex queries via the dispatcher.
@@ -86,6 +141,34 @@ const DATA_TOOLS: OtoToolSchema[] = [
             "VIN of the active vehicle (read from <vehicle> block). Filters results to that car only. Required for any car-scoped question. Omit only for cross-vehicle queries.",
         },
       },
+    },
+  },
+
+  // #434 — Oto opened booking cards for a closed-hours time and a taken slot
+  // because it could not see either.
+  {
+    name: "check_shop_availability",
+    description:
+      "Check whether a shop can take a booking on the day and at the time the user asked for, using the shop's real hours and open slots (the same ones the booking card shows). Call it BEFORE render_book_service, in the same turn, whenever the user names a shop together with a day or time (\"at Waleedservicecenter tomorrow at 8 PM\"); anything else you want to raise goes in that same reply, after the answer. Pass the name the way the user wrote it, even partial or lowercase. A shop on the `shops named:` line of the <user> block is a real, bookable shop the user named: check it, don't ask which shop they mean. Never ask for the shop's full or exact name, and never say a shop isn't coming up unless this tool returned shop_not_found. Read the date for \"today\", \"tomorrow\" or a weekday off the `calendar:` line in the <user> block; never count days yourself. Every answer repeats the day it checked in `day` (\"Sat, Oct 3\"); if that is not the day the user named, check again with the right date. " +
+      "status: available | open (no time asked; open_times lists the first free times, last_open_time the latest) | outside_hours | taken | closed_that_day | fully_booked | past | shop_not_found | ambiguous_shop. " +
+      "For anything except available or open, tell the user in one sentence why that time won't work and offer the returned alternatives, word for word. Do not open the booking card until they pick a time that works. " +
+      "alternatives and open_times are only the first few free times (last_open_time is the latest one that day), so a time missing from them may still be free: when the user names a time you haven't checked, even later in the chat with the shop named earlier, check it before saying it won't work.",
+    input_schema: {
+      type: "object",
+      properties: {
+        shop_name: { type: "string", description: "The shop name as the user said it, even partial or lowercase." },
+        date: { type: "string", description: "Requested day as YYYY-MM-DD." },
+        time: {
+          type: "string",
+          description: "Optional. Requested start time as HH:MM, 24-hour (8 PM → \"20:00\"). Omit when the user named only a day.",
+        },
+        weekday: {
+          type: "string",
+          enum: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+          description: "The day of the week the user named for the visit (\"sunday at 10\" → \"Sunday\"); pass it whenever they named one. If `date` falls on a different day, the check uses the nearest date on this day.",
+        },
+      },
+      required: ["shop_name", "date"],
     },
   },
 
@@ -200,7 +283,7 @@ const DATA_TOOLS: OtoToolSchema[] = [
   {
     name: "get_vehicle_health",
     description:
-      "Returns the user's vehicle health snapshot: a 0–100 health score, whether the score is estimated, and a per-maintenance-type breakdown (oil, brakes, tires, inspection, battery) with status, description, and service-history details. Call this tool when the user asks about their car's overall condition (\"how is my car doing?\", \"what's my score?\") or when narrowing a symptom has pointed toward a routine maintenance category and you need to check whether that maintenance is overdue or due-soon. MANDATORY before concluding a maintenance-flavored symptom conversation: once narrowing has pointed at a maintenance category (brakes, tires, oil, battery), you may NOT fire render_book_service, wrap up, or answer the final narrowed turn without having called this in the SAME conversation — the trust gate (symptom vs self_reported record → render_record_confirmation) cannot be evaluated without it, and skipping the read skips the gate blind. Do NOT call this tool for educational questions, refusals, or general catalog inquiries — only when vehicle-specific maintenance state is relevant to the response.\n\nEach item includes `record_provenance`, which tells you how much to trust its status: `verified` = backed by third-party evidence (a completed OtoPair booking, an uploaded service record, or mechanic-onboarded data), treat as truth; `self_reported` = user-provided via onboarding or check-in without a backing document, soft data that may be stale or wrong (data form hallucination is common — users misremember service dates and click through onboarding quickly); `inferred` = no record exists, status came from a fallback (warning light, vehicle age, default). When a user-described symptom contradicts a `self_reported` item's status, the record itself is suspect — surface it to the user before treating the status as authoritative. When the contradiction is against a `verified` item, the symptom is the surprise — narrow it.\n\nCOVERAGE IS NARROW AND THE RESPONSE SAYS SO. Every response carries `monitored_systems` (the complete set OtoPair tracks, each with a `covers` note stating its exact boundary) and `not_monitored` (the statement of everything outside it). Read those two fields BEFORE the items. The absence of a system from `items` means it has never been measured — it does NOT mean it is healthy. Never call an unlisted system fine, healthy, or \"covered,\" and never let a good score or a clean item list stand in for data you do not have. Note especially that the `battery` item is the 12V starter battery ONLY — it is NOT a hybrid or EV high-voltage traction battery, and traction packs, transmission, suspension and A/C are never tracked here. For anything outside `monitored_systems`, say plainly that you have no data on it and offer an inspection.",
+      "Returns the user's vehicle health snapshot: a 0–100 health score, whether the score is estimated, and a per-maintenance-type breakdown (oil, brakes, tires, inspection, battery) with status, description, and service-history details. Call this tool when the user asks about their car's overall condition (\"how is my car doing?\", \"what's my score?\") or when narrowing a symptom has pointed toward a routine maintenance category and you need to check whether that maintenance is overdue or due-soon. MANDATORY before concluding a maintenance-flavored symptom conversation: once narrowing has pointed at a maintenance category (brakes, tires, oil, battery), you may NOT fire render_book_service, wrap up, or answer the final narrowed turn without having called this in the SAME conversation — the trust gate (symptom vs self_reported record → render_record_confirmation) cannot be evaluated without it, and skipping the read skips the gate blind. Do NOT call this tool for educational questions, refusals, or general catalog inquiries — only when vehicle-specific maintenance state is relevant to the response.\n\nEach item includes `record_provenance`, which tells you how much to trust its status: `verified` = backed by third-party evidence (a completed OtoPair booking, an uploaded service record, or mechanic-onboarded data), treat as truth; `self_reported` = user-provided via onboarding or check-in without a backing document, soft data that may be stale or wrong (data form hallucination is common — users misremember service dates and click through onboarding quickly); `inferred` = no record exists, status came from a fallback (warning light, vehicle age, default). When a user-described symptom contradicts a `self_reported` item's status, the record itself is suspect — surface it to the user before treating the status as authoritative. When the contradiction is against a `verified` item, the symptom is the surprise — narrow it.\n\nCOVERAGE IS NARROW AND THE RESPONSE SAYS SO. Every response carries `monitored_systems` (the complete set OtoPair tracks, each with a `covers` note stating its exact boundary) and `not_monitored` (the statement of everything outside it). Read those two fields BEFORE the items. The absence of a system from `items` means it has never been measured — it does NOT mean it is healthy. Never call an unlisted system fine, healthy, or \"covered,\" and never let a good score or a clean item list stand in for data you do not have. Note especially that the `battery` item is the 12V starter battery ONLY — it is NOT a hybrid or EV high-voltage traction battery, and traction packs, transmission, suspension and A/C are never tracked here. For anything outside `monitored_systems`, say plainly that you have no data on it and offer an inspection.\n\nEach `known_issues` entry says where that light came from (a shop's inspection, a check-in, an earlier Oto chat). It is the car's record, not something the user said in this chat: say \"your record shows\" or name the source, never \"you mentioned\".",
     input_schema: {
       type: "object",
       properties: {
@@ -518,7 +601,7 @@ const STATE_TOOLS: OtoToolSchema[] = [
           type: "array",
           items: { type: "string" },
           description:
-            "Short factual statements the conversation has surfaced — symptoms reported, conditions, mileages, prior service mentions, user preferences. Each entry is one self-contained string. SEND THE FULL CURRENT LIST every time (this REPLACES the prior value — no deltas). Cap around 10 entries; drop oldest if you exceed. Examples: 'mileage ~38000', 'brake squeal at first braking only', 'no recent brake work mentioned', 'user prefers shop nearest to home zip'.",
+            "Short factual statements the conversation has surfaced — symptoms reported, conditions, mileages, prior service mentions, user preferences. Each entry is one self-contained string. SEND THE FULL CURRENT LIST every time (this REPLACES the prior value — no deltas). Cap around 10 entries; drop oldest if you exceed. Examples: 'mileage ~38000', 'brake squeal at first braking only', 'no recent brake work mentioned', 'user prefers shop nearest to home zip'. Start anything that came from a tool or the car's record rather than the user with 'record:' (e.g. 'record: temperature light flagged at a Sep 27 inspection'), so a later turn doesn't credit it to the user.",
         },
         last_intent: {
           type: "string",
@@ -554,23 +637,28 @@ const RENDER_TOOLS: OtoToolSchema[] = [
       "Single terminal render that opens the consolidated booking component pre-filled with everything Oto has narrowed down. Fire this ONCE per booking conversation cycle when ANY of these is true: " +
       "(a) symptom narrowing has converged on a Diagnostic Scan (multi-cause ambiguity, on_time verified records, unknown/needs_attention records, or 6-turn polite exit) — pass `service_slugs: [\"diagnostic_scan\"]` + `diagnostic_system` + `customer_notes`. " +
       "(b) vehicle-health flags an item due_soon/overdue AND the symptom matches that wear (direct service) — pass `service_slugs: [<direct_service_slug>]` (e.g. `[\"brake_pad_replacement\"]`), omit `diagnostic_system`, optionally include a brief `customer_notes` anchor. " +
-      "(c) user explicitly asks to book a specific service (\"I want an oil change\") — pass `service_slugs: [<requested_service_slug>]`, omit `diagnostic_system` and `customer_notes`. " +
+      "(c) user explicitly asks to book a specific service (\"I want an oil change\") — pass `service_slugs: [<requested_service_slug>]`, omit `diagnostic_system` and `customer_notes`. That's their call even when nothing is due yet (an oil change at 2,000 miles): you may say once that it isn't due, then carry on with the booking; never refuse it or tell them to wait until it's due. " +
       "(d) user bundles multiple services (\"oil change AND tire rotation\") — pass `service_slugs: [\"oil_change\", \"tire_rotation\"]`, omit `diagnostic_system`. " +
       "(e) user confirms (\"yeah\" / \"yes\" / \"go ahead\" / \"sounds good\" / \"let's do it\") AFTER Oto offered to book — fire IMMEDIATELY; DO NOT re-ask, re-explain, or chain another \"Want me to…?\" sentence. " +
       "(f) the record-confirmation result arrives — a synthetic user message reading \"Confirmed — [type] record is correct as-is.\" or \"Updated — last [type] service was actually …\" after a render_record_confirmation turn. Confirmed → fire THIS TURN with `service_slugs: [\"diagnostic_scan\"]` + `diagnostic_system` + `customer_notes` (record was right, symptom is the surprise). Updated → re-check get_vehicle_health; overdue/due_soon → direct slug, still on_time → diagnostic-scan prefill. Answering the confirmation turn in prose without the booking render is the defect — and never name a canonical repair service (no \"Brake Pad Replacement\") on the way. " +
+      "BOOK ONLY WHAT THE USER CHOSE — services they named, picked from your chips, or said yes to when you offered them by name (e). A request that names no catalog service — \"set up that first service\", \"book my scheduled maintenance\", \"the 30k service\", \"a tune-up\", \"a checkup\", \"get it serviced\" — is not a booking yet, even after you've described what it usually includes. Don't open the card: ask which services they want (that isn't turning them down, and it holds when nothing is due). Write the question and call render_quick_replies with up to 4 chips: the catalog services that fit, each chip's id its slug and its text the service's name, plus \"All of these\" after you described a package or \"Something else\" otherwise. get_due_services shows what's due; list_services_for_vehicle with a category covers an area (\"something for the tires\"). When they pick, open the card with exactly those slugs. Never fill in oil_change, or diagnostic_scan (that's for a symptom), for them. " +
       "TRUST-GATE PRECEDENCE: do NOT fire this on the turn a narrowed symptom contradicts a get_vehicle_health item that is on_time with record_provenance \"self_reported\" and the record has NOT yet been confirmed this conversation — that turn belongs to render_record_confirmation (the record itself may be wrong); this tool fires on the FOLLOWING turn, after the user confirms or updates the record. " +
       "Polite-exit pattern (6 unconverged narrowing turns): pass `service_slugs: [\"diagnostic_scan\"]`, `diagnostic_system: \"not_sure\"`, `customer_notes` = summary of everything the user mentioned. " +
       "TERMINAL render — no further data lookups and no second card after it; update_conversation_state still fires in the same turn (render_quick_replies MAY accompany it in the same turn). SINGLE FIRE per booking conversation cycle — do NOT fire it again on subsequent turns; the mobile component handles every sub-stage internally (service options → notes → mechanic selection → time-slot → confirmation → pay-screen redirect) without going back through Oto. " +
-      "Do NOT pass a `price` field on any service. Do NOT invent slugs — must match OTOPAIR_SERVICE_SLUGS exactly. Do NOT fabricate `customer_notes` content; quote only what the user actually said.",
+      "Do NOT pass a `price` field on any service. Do NOT invent slugs — service_slugs takes only the catalog slugs it lists. Do NOT fabricate `customer_notes` content; quote only what the user actually said. " +
+      "The card books the car in the <vehicle> block and cannot take a shop or time: when the user named a shop and a day or time, call check_shop_availability first and fire this only once that time works. A time it says won't work never gets the card, even when the user says the shop agreed to it: the app books open slots only, so offer the open times or suggest they call the shop. Never fire it for a car that is not in the `garage:` list of the <user> block. " +
+      "Nothing is booked until the user confirms in the card, so never say a time is \"locked in\" or that a shop \"has you down\"; say the card is ready for them to confirm. Once the user picks a time that check_shop_availability found open, open the card that turn: a warning light on the car's record, a symptom from earlier in the chat or a question about their service history goes in the same reply, never in place of the card. The one exception is a service they haven't chosen yet: then that reply asks which services they want, and the card opens once they pick.",
     input_schema: {
       type: "object",
       properties: {
         service_slugs: {
           type: "array",
           minItems: 1,
-          items: { type: "string" },
+          items: { type: "string", enum: OTOPAIR_SERVICE_SLUGS },
           description:
-            "Required. At least one canonical snake_case service slug from OTOPAIR_SERVICE_SLUGS. Supports multi-service bundling: e.g. [\"diagnostic_scan\"] OR [\"oil_change\", \"tire_rotation\"]. NEVER invent new slugs; match the production catalog exactly.",
+            "Required. At least one catalog service slug, exactly as listed — these are the only services the app books. Supports multi-service bundling: e.g. [\"diagnostic_scan\"] OR [\"oil_change\", \"tire_rotation\"]. " +
+            SLUG_GLOSS +
+            " A service the user hasn't named or picked doesn't go here: ask which they want (see BOOK ONLY WHAT THE USER CHOSE).",
         },
         diagnostic_system: {
           type: "string",
@@ -623,7 +711,7 @@ const RENDER_TOOLS: OtoToolSchema[] = [
   {
     name: "render_vehicle_update",
     description:
-      "Surface a one-tap confirm card that lets the user approve pending vehicle-truth updates (odometer reading, service claims, and/or warning lights Oto captured during the conversation). Call this when you have gathered one or more of: a user-stated mileage, service-due claims, or active fault lights — and you want the user to confirm before writing them to the vehicle record. On confirm the mobile component calls vehicleTruth.applyVehicleTruth with the supplied inputs. Terminal render — no further data lookups and no second card after it; update_conversation_state still fires in the same turn, but you SHOULD pair it with render_quick_replies in the same turn when the user has an obvious next tap (e.g. 'That's everything' / 'What's due next?'), plus a brief framing sentence confirming what you heard.",
+      "Surface a one-tap confirm card that lets the user approve pending vehicle-truth updates (odometer reading, service claims, and/or warning lights Oto captured during the conversation). Call this when you have gathered one or more of: a user-stated mileage, service-due claims, or active fault lights — and you want the user to confirm before writing them to the vehicle record. On confirm the mobile component calls vehicleTruth.applyVehicleTruth with the supplied inputs. Terminal render — no further data lookups and no second card after it; update_conversation_state still fires in the same turn, but you SHOULD pair it with render_quick_replies in the same turn when the user has an obvious next tap (e.g. 'That's everything' / 'What's due next?'), plus a brief framing sentence confirming what you heard. Nothing is saved until the user taps Confirm: never say you logged, saved or recorded it, say it's ready to confirm. If they ask about it before confirming (\"did you get my mileage?\"), repeat the value they gave and say it's waiting on the card.",
     input_schema: {
       type: "object",
       properties: {
@@ -639,7 +727,11 @@ const RENDER_TOOLS: OtoToolSchema[] = [
             properties: {
               service_slug: {
                 type: "string",
-                description: "Canonical snake_case service slug from OTOPAIR_SERVICE_SLUGS.",
+                enum: OTOPAIR_SERVICE_SLUGS,
+                description:
+                  "The catalog service, exactly as listed. " +
+                  SLUG_GLOSS +
+                  " A service that isn't in this list (wiper blades, a car wash) can't be saved: leave it off the card and tell the user the app doesn't track it.",
               },
               kind: {
                 type: "string",
@@ -655,12 +747,12 @@ const RENDER_TOOLS: OtoToolSchema[] = [
               service_age_days: {
                 type: "number",
                 description:
-                  "Optional, kind:\"completed\" only. How many days ago the service was done, for relative phrasing — \"a week ago\" → 7, \"2 weeks ago\" → 14, \"last month\" → 30, \"yesterday\" → 1. The server resolves it to (now − days). Use this for relative time; omit if the user gave no time.",
+                  "Optional, kind:\"completed\" only. How many days ago the service was done, for a span with no named day — \"a week ago\" → 7, \"2 weeks ago\" → 14, \"last month\" → 30, \"yesterday\" → 1. The server resolves it to (now − days). A named day (\"last Saturday\") goes in service_date instead. Omit if the user gave no time.",
               },
               service_date: {
-                type: "number",
+                type: "string",
                 description:
-                  "Optional, kind:\"completed\" only. Absolute Unix ms timestamp the service was performed — use ONLY when the user names a concrete date. Prefer service_age_days for relative phrases. Wins over service_age_days if both are set.",
+                  "Optional, kind:\"completed\" only. The date the service was performed, as YYYY-MM-DD — use when the user names a date or a day (\"September 22\", \"9/18\", \"last Saturday\"). A \"last Saturday\" in the message comes worked out on its own line in the <user> block — copy that date. Read other named days off the `calendar:` line and the year off the `today:` line: a month and day with no year means the most recent one that isn't in the future. Wins over service_age_days if both are set.",
               },
               stated_confidence: {
                 type: "string",
@@ -887,6 +979,7 @@ export const OTO_TOOL_CATEGORY: Record<string, OtoToolCategory> = {
   get_bookings: "data",
   // Booking Status — Sprint 3 Day 5 §14.3 (pending-only subset of get_bookings)
   get_pending_bookings: "data",
+  check_shop_availability: "data",
   get_due_services: "data",
   list_services_for_vehicle: "data",
   get_service_details: "data",
@@ -948,52 +1041,6 @@ export const OTO_TOOL_CATEGORY: Record<string, OtoToolCategory> = {
   render_sources: "render",
   // navigation — empty as of Sprint 4 Day 1 Pass B; see NAVIGATION_TOOLS note.
 };
-
-// Canonical service slugs — production source of truth is the Convex
-// `services` table, populated by `convex/seeds/seedServices.ts`. Verified
-// against a production CSV dump on 2026-05-11.
-//
-// FORMAT IS snake_case. Several other files in this repo still reference an
-// older kebab-case taxonomy that no longer matches production —
-// see `docs/oto-ai/slug-drift-remediation.md` for the full audit. Do not use
-// kebab-case slugs anywhere in Oto AI tool surface.
-//
-// NEVER add to this list without first adding the service to `convex/services`
-// (via the canonical seed) and confirming it surfaces in `services.list`.
-export const OTOPAIR_SERVICE_SLUGS = [
-  // Diagnostics
-  "diagnostic_scan",
-  "pre_purchase_inspection",
-  "check_engine_light",
-  // Compliance
-  "state_inspection",
-  "emissions_test",
-  // Routine Maintenance
-  "oil_change",
-  "filter_replacement",        // bundled: engine air filter + cabin air filter
-  "spark_plugs",
-  "timing_belt",
-  "coolant_flush",
-  "transmission_service",
-  // Tires
-  "tire_rotation",
-  "tire_balance",
-  "wheel_alignment",
-  "tire_replacement",
-  // Brakes
-  "brake_pad_replacement",
-  "rotor_replacement",
-  "brake_fluid_flush",
-  // Battery
-  "battery_test",
-  "battery_replacement",
-  // Fluids
-  "power_steering_flush",
-  "differential_service",
-  "fuel_system_cleaning",
-] as const;
-
-export type OtopairServiceSlug = (typeof OTOPAIR_SERVICE_SLUGS)[number];
 
 // --- Historical reference: stale kebab-case slugs from
 //     convex/seed_services_catalog.ts. Do NOT use. Kept for cross-checking

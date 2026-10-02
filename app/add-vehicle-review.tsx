@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
   Alert,
   Dimensions,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -839,7 +840,12 @@ export default function AddVehicleReviewScreen() {
         {(vdbLoading || hasVdbData) && (
           <View style={styles.colorCard}>
             <View style={styles.colorHeaderRow}>
-              <Text weight="semiBold" size="md" color="#1F2937">
+              <Text
+                weight="semiBold"
+                size="md"
+                color="#1F2937"
+                style={Platform.OS === 'android' ? styles.colorHeaderTitleAndroid : undefined}
+              >
                 Choose your {params.make}{"'"}s color
               </Text>
               <Text size="xs" color="#9CA3AF" numberOfLines={1} style={styles.colorHeaderRight}>
@@ -854,7 +860,11 @@ export default function AddVehicleReviewScreen() {
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.colorRow}
+                style={Platform.OS === 'android' ? styles.colorScrollAndroid : undefined}
+                contentContainerStyle={[
+                  styles.colorRow,
+                  Platform.OS === 'android' && styles.colorRowAndroid,
+                ]}
               >
                 {CAR_COLORS.map((c) => (
                   <ColorSwatchItem
@@ -1256,6 +1266,24 @@ const styles = StyleSheet.create({
     gap: scale(14),
     paddingVertical: scale(4),
     paddingRight: scale(8),
+  },
+  // #286 (Android): the title didn't shrink, so a long make ("MERCEDES-BENZ")
+  // pushed the count / selected color past the card's right edge. Let the
+  // title wrap instead.
+  colorHeaderTitleAndroid: {
+    flexShrink: 1,
+  },
+  // #286 (Android): the row scrolled inside the card's padding, so swatches
+  // were cut off a little way inside the card on both sides. Run it out to
+  // the card's edges (padding moved into the content) so swatches slide
+  // under the edge instead.
+  colorScrollAndroid: {
+    marginLeft: -scale(16),
+    marginRight: -scale(8),
+  },
+  colorRowAndroid: {
+    paddingLeft: scale(16),
+    paddingRight: scale(16),
   },
   swatchPress: {
     width: scale(64),

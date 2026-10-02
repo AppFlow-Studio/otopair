@@ -642,6 +642,10 @@ export const claimByToken = mutation({
 
     let vehiclesMoved = 0;
     for (const ownership of stubOwnerships) {
+      // Only cars still in the walk-in's garage. A removed row (soft delete,
+      // #395) is not one; an "inactive" row was retired by an earlier merge,
+      // and re-reading it would revive a car the driver removed since.
+      if (ownership.status !== "active") continue;
       const mine = await ctx.db
         .query("vehicle_owners")
         .withIndex("by_vin_user", (q: any) =>
@@ -652,6 +656,19 @@ export const claimByToken = mutation({
         // The car is already in their garage. Retiring the stub's row rather
         // than moving it keeps the carousel from showing the same VIN twice;
         // the driver's own row is the one with their history on it.
+        if (mine.status === "removed") {
+          // They removed it earlier, but it is back in a shop with them:
+          // revive their row, as re-adding the VIN would. Left removed, this
+          // walk-in's booking would point at a car their garage hides; moving
+          // the stub's row instead would give one vin+user two rows.
+          const isPrimary = await hasNoActiveVehicles(ctx, me._id);
+          await ctx.db.patch(mine._id, {
+            status: "active",
+            removed_at: undefined,
+            added_at: now,
+            is_primary: isPrimary,
+          });
+        }
         await ctx.db.patch(ownership._id, { status: "inactive" } as any);
         continue;
       }

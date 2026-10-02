@@ -1,7 +1,7 @@
 import { internalMutation, internalQuery, query, mutation } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
-import { v } from "convex/values";
+import { ConvexError, v } from "convex/values";
 import { awardPointsImpl } from "./healthPoints";
 import {
   deriveHistoryConfidence,
@@ -10,6 +10,7 @@ import {
 } from "./lib/classifier";
 import { resolveTireSizesForVin } from "./lib/vehicle_passports";
 import { isRealVin, isPseudoVin } from "./lib/vinIdentity";
+import { UPCOMING_BOOKING_ERROR_CODE, type UpcomingBookingErrorData } from "./lib/vehicleRemoval";
 
 /**
  * vehicles.ts - Canonical vehicle catalog management
@@ -777,6 +778,17 @@ export const addOwner = mutation({
         if (args.nickname !== undefined) updates.nickname = args.nickname;
         if (args.is_primary !== undefined) updates.is_primary = args.is_primary;
         if (args.mileage !== undefined) updates.mileage = args.mileage;
+        // Removal clears is_primary, so a revived car reclaims it the same
+        // way a new car does: only when no active car holds it.
+        if (args.is_primary === undefined) {
+          const activeOwnerships = await ctx.db
+            .query("vehicle_owners")
+            .withIndex("by_user_status", (q) =>
+              q.eq("user_id", args.userId).eq("status", "active")
+            )
+            .collect();
+          updates.is_primary = !activeOwnerships.some((o) => o.is_primary);
+        }
 
         await ctx.db.patch(existing._id, updates);
         return existing._id;
@@ -837,14 +849,10 @@ export const addOwner = mutation({
  * vehicle-owner scoped records.
  */
 /**
- * Statuses where the car is physically committed to a shop.
- *
- * Not "has any booking" — a pending or confirmed job is a plan, and a driver
- * is allowed to change their mind about a plan. These three mean the vehicle
- * is AT the shop: checked in, on a lift, or stalled mid-job. Removing it then
- * orphans a booking a mechanic is actively working, which is how a live job
- * ended up on the Home hero with no car name and no image (Ahmad,
- * 2026-09-14).
+ * Statuses where the car is physically committed to a shop: checked in, on a
+ * lift, or stalled mid-job. Removing it then orphans a booking a mechanic is
+ * actively working, which is how a live job ended up on the Home hero with no
+ * car name and no image (Ahmad, 2026-09-14).
  */
 const AT_SHOP_STATUSES: ReadonlySet<string> = new Set([
   "vehicle_at_shop",
@@ -852,30 +860,88 @@ const AT_SHOP_STATUSES: ReadonlySet<string> = new Set([
   "delayed",
 ]);
 
+/** A booking in one of these is over — it no longer needs its car. */
+const FINISHED_BOOKING_STATUSES: ReadonlySet<string> = new Set([
+  "cancelled",
+  "completed",
+  "no_show",
+  "declined",
+]);
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** "2026-09-29" -> "Tue, Sep 29". Null for anything else. */
+function bookingDateLabel(scheduledDate: unknown): string | null {
+  if (typeof scheduledDate !== "string") return null;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(scheduledDate);
+  if (!match) return null;
+  const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  return `${WEEKDAYS[date.getUTCDay()]}, ${MONTHS[date.getUTCMonth()]} ${date.getUTCDate()}`;
+}
+
 /**
- * Refuses the delete while a shop still has the car.
+ * Refuses the removal while any of this driver's bookings still needs the car.
  *
- * Throws rather than returning a flag: both callers delete maintenance records
- * BEFORE the ownership row, so a soft "false" would have to be checked at
- * every call site, and one missed check leaves a half-deleted vehicle.
+ * Earlier this only blocked the three at-shop statuses, on the view that a
+ * pending or confirmed job is a plan the driver may drop. That left the
+ * booking live in Bookings and on the shop's schedule, pointing at a car the
+ * garage no longer had (#395, on both platforms). An upcoming booking now
+ * blocks too, with its own reason and date (#396) — the driver cancels it
+ * first, from the booking the error points at.
+ *
+ * Throws rather than returning a flag so no caller can soft-delete past it.
  */
-async function assertVehicleNotAtShop(
+async function assertVehicleRemovable(
   ctx: any,
-  vin: string,
-  userId: Id<"users">,
+  ownership: { vin: string; user_id: Id<"users">; nickname?: string },
 ): Promise<void> {
   const bookings = await ctx.db
     .query("bookings")
-    .withIndex("by_vin", (q: any) => q.eq("vin", vin))
+    .withIndex("by_vin", (q: any) => q.eq("vin", ownership.vin))
     .collect();
-  const live = bookings.find(
-    (b: any) => b.user_id === userId && AT_SHOP_STATUSES.has(String(b.status)),
+  const open = bookings.filter(
+    (b: any) =>
+      b.user_id === ownership.user_id &&
+      !FINISHED_BOOKING_STATUSES.has(String(b.status)),
   );
-  if (live) {
+  if (open.some((b: any) => AT_SHOP_STATUSES.has(String(b.status)))) {
     throw new Error(
       "This car is at the shop right now. You can remove it once the job is finished.",
     );
   }
+  if (open.length === 0) return;
+
+  // Point the driver at the soonest one; date strings are ISO so they sort.
+  const slot = (b: any) => `${b.scheduled_date ?? "9999-99-99"} ${b.scheduled_time ?? ""}`;
+  const next = [...open].sort((a, b) => slot(a).localeCompare(slot(b)))[0];
+  const car = ownership.nickname?.trim() || "car";
+  const when = bookingDateLabel(next.scheduled_date);
+  const data: UpcomingBookingErrorData = {
+    code: UPCOMING_BOOKING_ERROR_CODE,
+    bookingId: String(next._id),
+    ...(when ? { dateLabel: when } : {}),
+    message: when
+      ? `Your ${car} has a booking on ${when}. Cancel it first to remove this car.`
+      : `Your ${car} has an upcoming booking. Cancel it first to remove this car.`,
+  };
+  throw new ConvexError(data);
+}
+
+/**
+ * Soft-delete: the ownership stays with status "removed", and its maintenance
+ * records, mileage and history stay with it. Re-adding the same VIN revives
+ * the row in `addOwner`, so the car comes back as it was instead of starting
+ * over. A no-op when the car is already removed.
+ */
+async function softRemoveOwnership(ctx: any, ownership: any): Promise<void> {
+  if (ownership.status === "removed") return;
+  await assertVehicleRemovable(ctx, ownership);
+  await ctx.db.patch(ownership._id, {
+    status: "removed",
+    removed_at: Date.now(),
+    is_primary: false,
+  });
 }
 
 export const removeOwner = mutation({
@@ -898,24 +964,12 @@ export const removeOwner = mutation({
       throw new Error("This customer isn't listed as an owner of that vehicle.");
     }
 
-    await assertVehicleNotAtShop(ctx, normalizedVin, args.userId);
-    
-    // Delete maintenance records for this ownership
-    const maintenanceRows = await ctx.db
-      .query("maintenance_records")
-      .withIndex("by_vehicle_owner", (q) => q.eq("vehicleOwnerId", ownership._id))
-      .collect();
-    for (const row of maintenanceRows) {
-      await ctx.db.delete(row._id);
-    }
-
-    // Finally delete the ownership row itself.
-    await ctx.db.delete(ownership._id);
+    await softRemoveOwnership(ctx, ownership);
   },
 });
 
 /**
- * Hard-delete ownership by vehicle_owners._id.
+ * Soft-remove ownership by vehicle_owners._id (see softRemoveOwnership).
  *
  * Use this when caller already has ownership id (most reliable key).
  */
@@ -929,17 +983,7 @@ export const removeOwnerById = mutation({
       throw new Error("We couldn't find that vehicle ownership record.");
     }
 
-    await assertVehicleNotAtShop(ctx, ownership.vin, ownership.user_id);
-
-    const maintenanceRows = await ctx.db
-      .query("maintenance_records")
-      .withIndex("by_vehicle_owner", (q) => q.eq("vehicleOwnerId", ownership._id))
-      .collect();
-    for (const row of maintenanceRows) {
-      await ctx.db.delete(row._id);
-    }
-
-    await ctx.db.delete(ownership._id);
+    await softRemoveOwnership(ctx, ownership);
     return { success: true };
   },
 });
@@ -1154,11 +1198,12 @@ export const updateOwnershipPrimary = mutation({
         q.eq("vin", normalizedVin).eq("user_id", args.userId)
       )
       .unique();
-    
-    if (!ownership) {
+
+    // A removed car must not take primary from one still in the garage.
+    if (!ownership || ownership.status !== "active") {
       throw new Error("This customer isn't listed as an owner of that vehicle.");
     }
-    
+
     if (args.is_primary) {
       // Remove primary from all other active ownerships for this user
       const otherOwnerships = await ctx.db
@@ -1208,7 +1253,8 @@ export const setVehicleRole = mutation({
         q.eq("vin", normalizedVin).eq("user_id", args.userId)
       )
       .unique();
-    if (!ownership) {
+    // A removed car (soft delete, #395) is out of the garage.
+    if (!ownership || ownership.status !== "active") {
       throw new Error("This customer isn't listed as an owner of that vehicle.");
     }
 
@@ -1260,8 +1306,9 @@ export const updateMileage = mutation({
         q.eq("vin", normalizedVin).eq("user_id", args.userId)
       )
       .unique();
-    
-    if (!ownership) {
+
+    // A removed car (soft delete, #395) is out of the garage.
+    if (!ownership || ownership.status !== "active") {
       throw new Error("This customer isn't listed as an owner of that vehicle.");
     }
 
@@ -1679,7 +1726,15 @@ export const saveOnboardingField = mutation({
     // ── Dispatch by field ──────────────────────────────────────────────
     switch (field) {
       case "mileage": {
-        await ctx.db.patch(vehicleOwnerId, { mileage: value as number });
+        // Stamp recency like updateMileage does. Without mileage_updated_at
+        // the resolver (lib/mileage.ts) lets any shop-passport reading beat
+        // this value forever, so Oto quoted a stale number while the Cars
+        // page showed this one (#425).
+        await ctx.db.patch(vehicleOwnerId, {
+          mileage: value as number,
+          mileage_source: "app_self_reported",
+          mileage_updated_at: Date.now(),
+        });
         break;
       }
       case "avgMonthlyDriving": {

@@ -29,6 +29,7 @@ import { usePathname } from "expo-router";
 
 import { Text } from "@/components/shared-ui";
 import { AvatarSlider } from "@/components/settings/AvatarSlider";
+import { useClerkProfileImage } from "@/hooks/useClerkProfileImage";
 import { useMeFromConvex } from "@/hooks/useMeFromConvex";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { useSettingsOverlayStore } from "@/stores/useSettingsOverlayStore";
@@ -83,14 +84,16 @@ export function ProfileInitialsButton() {
   // Same fallback chain as SettingsContent's avatar so the two surfaces
   // never disagree. `profile_photo_url` from Convex is only trusted
   // when `profile_photo_storage_id` is set — otherwise it's just the
-  // Clerk OAuth default (purple gradient) that got synced on signup,
-  // and we'd rather show our branded gradient initials placeholder.
+  // Clerk OAuth default (purple gradient) that got synced on signup.
+  // Without an upload, the Clerk account's own photo is the default;
+  // with none, our branded gradient initials placeholder.
+  const clerkImage = useClerkProfileImage();
   const photoUri = useMemo(() => {
     if (me?.profile_photo_storage_id && me?.profile_photo_url)
       return me.profile_photo_url;
     if (storedPhoto) return storedPhoto;
-    return null;
-  }, [me?.profile_photo_storage_id, me?.profile_photo_url, storedPhoto]);
+    return clerkImage;
+  }, [me?.profile_photo_storage_id, me?.profile_photo_url, storedPhoto, clerkImage]);
 
   const handlePress = () => {
     // Ignore taps while the overlay (or one of its destinations) is

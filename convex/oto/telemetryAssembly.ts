@@ -30,12 +30,16 @@ export type TurnSample = {
     | "terminal"
     | "text_only"
     | "data_continue"
+    // A booking card naming no catalog service ("first_service"), sent back
+    // to the model instead of the user (2026-10-01); the loop continues.
+    | "card_rejected"
     | "forced_final"
-    // Follow-up repair calls (chat.ts §6.9 state-contract retry and the
-    // 2026-08-15 announcement-terminal retry) — real API calls whose usage
-    // must count toward the turn.
+    // Follow-up repair calls (chat.ts §6.9 state-contract retry, the
+    // 2026-08-15 announcement-terminal retry and the 2026-10-01 booking
+    // repair) — real API calls whose usage must count toward the turn.
     | "state_repair"
-    | "answer_repair";
+    | "answer_repair"
+    | "booking_repair";
 };
 
 /** The conversation-state writeback tool (Locked Principle: every

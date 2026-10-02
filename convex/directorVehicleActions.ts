@@ -161,7 +161,8 @@ export const reassignPrimaryOwner = mutation({
       .query("vehicle_owners")
       .withIndex("by_vin", (q) => q.eq("vin", veh.vin))
       .collect();
-    const target = owners.find((o) => o.user_id === newOwnerUserId);
+    // A driver who removed the car (soft delete, #395) no longer owns it.
+    const target = owners.find((o) => o.user_id === newOwnerUserId && o.status === "active");
     if (!target) return { ok: false as const, reason: "user_is_not_owner" };
 
     for (const o of owners) {

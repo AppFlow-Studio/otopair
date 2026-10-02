@@ -634,6 +634,8 @@ export const markEstimatedHealthScores = internalMutation({
     const owners = await ctx.db.query("vehicle_owners").collect();
     let updated = 0;
     for (const owner of owners) {
+      // Removed cars keep their row (soft delete, #395); nothing displays them.
+      if (owner.status !== "active") continue;
       const nextDue = owner.next_checkin_due as number | undefined;
       if (!nextDue) continue;
       const isOverdue = now > nextDue + thirtyDaysMs;

@@ -421,6 +421,32 @@ export default function AddVehicleDetailsScreen() {
     return () => clearTimeout(t);
   }, [imageBusy]);
 
+  // #277: once a lookup has come back empty for this car, a refetch (Retry,
+  // or a color/drivetrain change) used to swap the "Couldn't get an image"
+  // card for the bare grey skeleton and back. Remember the failure so the
+  // card stays up, with a spinner where Retry was. Set when the latch drops
+  // (the whole lookup is done), cleared when a different car is entered.
+  const [lookupFailed, setLookupFailed] = useState(false);
+  const wasLatchedRef = useRef(loadingLatch);
+  useEffect(() => {
+    if (loadingLatch) {
+      wasLatchedRef.current = true;
+      return;
+    }
+    if (!wasLatchedRef.current) return;
+    wasLatchedRef.current = false;
+    setLookupFailed(canLookupImage && !carImageUrl);
+  }, [loadingLatch, canLookupImage, carImageUrl]);
+  useEffect(() => {
+    setLookupFailed(false);
+  }, [year, brand, model]);
+  // The placeholder card (fill-in hint, or the failure copy) vs the skeleton.
+  const showImagePlaceholder =
+    !imageReady && !carImageUrl && (lookupFailed || !loadingLatch);
+  const showImageSkeleton =
+    !imageReady && !showImagePlaceholder && (loadingLatch || !!carImageUrl);
+  const isRetryingImage = lookupFailed && loadingLatch;
+
   const carImageOpacity = useSharedValue(0);
   useEffect(() => {
     carImageOpacity.value = withTiming(imageReady ? 1 : 0, { duration: 300 });
@@ -681,7 +707,9 @@ export default function AddVehicleDetailsScreen() {
   // Capped at 70% of screen height for long lists.
   const pickerSnapHeights = useMemo(() => {
     const HANDLE = 24; // grabber region above the header
-    const HEADER = 62; // title + inline search row
+    // Title + inline search row; on Android the search has its own row below
+    // the title (36 pill + 14 padding).
+    const HEADER = Platform.OS === "android" && sheetMode !== "trim" ? 62 + 50 : 62;
     // Rows with a 40px icon tile (brand logo, body-style icon, drivetrain
     // schematic) stand taller than plain text rows — size for that so short
     // lists like Drivetrain fit all options without scrolling.
@@ -703,6 +731,30 @@ export default function AddVehicleDetailsScreen() {
   const isPickerLoading =
     (sheetMode === "model" && modelsLoading) ||
     (sheetMode === "trim" && trimsLoading);
+
+  // Inline search — filters the list as you type. Hidden in trim mode, which
+  // owns a dedicated free-text input row below. #278 (Android): next to the
+  // title it was squeezed to its 96px minimum on a 360dp phone, clipping both
+  // the title ("Select Bra…") and its own placeholder ("Searc"), so Android
+  // gives it a full-width row under the title (see the header below).
+  const headerSearch =
+    sheetMode !== "trim" ? (
+      <View style={styles.headerSearch}>
+        <Search size={16} color="rgba(20,28,36,0.4)" strokeWidth={2.2} />
+        <TextInput
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          placeholder="Search"
+          placeholderTextColor="rgba(20,28,36,0.4)"
+          style={styles.headerSearchInput}
+          autoCapitalize="none"
+          autoCorrect={false}
+          returnKeyType="search"
+          keyboardType={sheetMode === "year" ? "number-pad" : "default"}
+          clearButtonMode="while-editing"
+        />
+      </View>
+    ) : null;
 
   const handleConfirmTrimDraft = useCallback(() => {
     const v = trimDraft.trim();
@@ -932,9 +984,11 @@ export default function AddVehicleDetailsScreen() {
             top of the swap instead of gating it. */}
         <View style={styles.heroCard}>
           {/* Empty-state placeholder — ONLY when there's nothing to show and
-              we're not loading. Hidden during load so the skeleton isn't
-              stacked on top of the covered-car art. */}
-          {!imageReady && !loadingLatch && !carImageUrl && (
+              we're not loading, or when a lookup for this car already failed
+              (then a refetch keeps it up with a spinner, #277). Otherwise
+              hidden during load so the skeleton isn't stacked on top of the
+              covered-car art. */}
+          {showImagePlaceholder && (
             <View style={styles.heroEmpty}>
               <Image
                 source={require("@/assets/images/covered-car.png")}
@@ -951,16 +1005,22 @@ export default function AddVehicleDetailsScreen() {
                   <Text size="xs" color="#9CA3AF" center style={styles.heroContinueHint}>
                     You can still continue without an image
                   </Text>
-                  <Pressable
-                    onPress={handleRetryImage}
-                    style={({ pressed }) => [styles.heroRetryBtn, pressed && { opacity: 0.7 }]}
-                    hitSlop={8}
-                  >
-                    <RotateCw size={14} color={BrandColors.secondary} strokeWidth={2.25} />
-                    <Text weight="semiBold" size="sm" color={BrandColors.secondary}>
-                      Retry
-                    </Text>
-                  </Pressable>
+                  {isRetryingImage ? (
+                    <View style={styles.heroRetryBtn} accessibilityLabel="Looking for an image">
+                      <ActivityIndicator size="small" color={BrandColors.secondary} />
+                    </View>
+                  ) : (
+                    <Pressable
+                      onPress={handleRetryImage}
+                      style={({ pressed }) => [styles.heroRetryBtn, pressed && { opacity: 0.7 }]}
+                      hitSlop={8}
+                    >
+                      <RotateCw size={14} color={BrandColors.secondary} strokeWidth={2.25} />
+                      <Text weight="semiBold" size="sm" color={BrandColors.secondary}>
+                        Retry
+                      </Text>
+                    </Pressable>
+                  )}
                 </>
               )}
             </View>
@@ -970,7 +1030,7 @@ export default function AddVehicleDetailsScreen() {
               model→variants→image cascade (latched), and covers the card so the
               placeholder never peeks through. Once an image has decoded, same-car
               refetches (color/trim) hold it and swap in place — no re-flash. */}
-          {!imageReady && (loadingLatch || !!carImageUrl) && <HeroImageSkeleton />}
+          {showImageSkeleton && <HeroImageSkeleton />}
 
           {carImageUrl && (
             <Animated.Image
@@ -1120,25 +1180,7 @@ export default function AddVehicleDetailsScreen() {
               {getSheetTitle()}
             </Text>
 
-            {/* Inline search — filters the list as you type. Hidden in trim
-                mode, which owns a dedicated free-text input row below. */}
-            {sheetMode !== "trim" && (
-              <View style={styles.headerSearch}>
-                <Search size={16} color="rgba(20,28,36,0.4)" strokeWidth={2.2} />
-                <TextInput
-                  value={searchQuery}
-                  onChangeText={setSearchQuery}
-                  placeholder="Search"
-                  placeholderTextColor="rgba(20,28,36,0.4)"
-                  style={styles.headerSearchInput}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  returnKeyType="search"
-                  keyboardType={sheetMode === "year" ? "number-pad" : "default"}
-                  clearButtonMode="while-editing"
-                />
-              </View>
-            )}
+            {Platform.OS !== "android" && headerSearch}
 
             <Pressable
               onPress={() => pickerSheetRef.current?.close()}
@@ -1150,6 +1192,11 @@ export default function AddVehicleDetailsScreen() {
             </Pressable>
           </View>
 
+          {/* Android: the search gets its own full-width row (#278). */}
+          {Platform.OS === "android" && headerSearch && (
+            <View style={styles.headerSearchRowAndroid}>{headerSearch}</View>
+          )}
+
           {/* Trim mode: free-text input on top — NHTSA returns no trims
               for most (model, year) pairs, so the cached list is usually
               empty. The input lets the user type "F Sport", "XLE", etc.
@@ -1159,7 +1206,14 @@ export default function AddVehicleDetailsScreen() {
               <TextInput
                 value={trimDraft}
                 onChangeText={setTrimDraft}
-                placeholder="Type a trim — e.g. F Sport, XLE, Limited"
+                // #280: Android wraps a placeholder that is wider than the
+                // field instead of cutting it short, and the second line was
+                // clipped by the field. The short one fits beside "Use".
+                placeholder={
+                  Platform.OS === "android"
+                    ? "Type your trim"
+                    : "Type a trim — e.g. F Sport, XLE, Limited"
+                }
                 placeholderTextColor="rgba(20,28,36,0.4)"
                 style={styles.trimInput}
                 autoCapitalize="words"
@@ -1485,6 +1539,13 @@ const styles = StyleSheet.create({
     height: 36,
     backgroundColor: "rgba(20,28,36,0.05)",
     borderRadius: BorderRadius.full,
+  },
+  // #278 (Android): the search pill's own row under the title. A row, so the
+  // pill's flex: 1 fills the width.
+  headerSearchRowAndroid: {
+    flexDirection: "row",
+    paddingHorizontal: 20,
+    paddingBottom: 14,
   },
   headerSearchInput: {
     flex: 1,
