@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { AppState, StyleSheet, View } from "react-native";
+import { AppState, Platform, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSegments } from "expo-router";
 
@@ -167,7 +167,13 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   // instead of above it. NATIVE_TAB_BAR_HEIGHT is what NativeTabs
   // actually paints (translucent material chrome, no home indicator).
   const NATIVE_TAB_BAR_HEIGHT = 56;
-  const tabBarTopFromScreenBottom = insets.bottom + NATIVE_TAB_BAR_HEIGHT;
+  // Android draws the custom <TabBar> instead: it floats 8pt above the inset
+  // and is 70pt tall (56pt buttons, 6pt padding and a 1pt border top and
+  // bottom), so its top sits 78pt up. Off the 56 line the toast came to rest
+  // over the bar's top edge (#199).
+  const ANDROID_TAB_BAR_TOP = 8 + 70;
+  const tabBarTopFromScreenBottom =
+    insets.bottom + (Platform.OS === "android" ? ANDROID_TAB_BAR_TOP : NATIVE_TAB_BAR_HEIGHT);
   const hostStyle = isTabbedRoute
     ? [styles.host, { bottom: tabBarTopFromScreenBottom }]
     : styles.host;

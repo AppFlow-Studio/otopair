@@ -62,7 +62,10 @@ async function _getDueServicesCore(
       q.eq("vin", vehicle.vin).eq("user_id", userId),
     )
     .unique();
-  if (!owner) throw new Error(`vehicle_owner not found for vehicle ${vehicle_id}`);
+  // A removed car keeps its row (soft delete, #395) but is out of the garage.
+  if (!owner || owner.status !== "active") {
+    throw new Error(`vehicle_owner not found for vehicle ${vehicle_id}`);
+  }
 
   const states = await ctx.db
     .query("vehicle_service_states")

@@ -18,6 +18,7 @@ import type { Doc, Id } from "./_generated/dataModel";
 import { computeMaxDelta, validateMileageUpdate } from "./oto/vehicleTruthGuard";
 import { symptomForServiceSlug } from "./lib/serviceSymptoms";
 import { recordTypeForServiceSlug } from "./lib/serviceRecordType";
+import { canonicalServiceSlug } from "./oto/serviceSlugs";
 import { normalizeFaultLight, toCanonicalLight } from "../lib/warningLightVocab";
 import { logKnownIssueEvents } from "./lib/knownIssueEvents";
 
@@ -151,7 +152,10 @@ async function applyVehicleTruthImpl(
       q.eq("vin", vehicle.vin).eq("user_id", user._id),
     )
     .unique();
-  if (!owner) throw new Error(`vehicle_owner not found for vehicle ${vehicle._id}`);
+  // A removed car keeps its row (soft delete, #395) but is out of the garage.
+  if (!owner || owner.status !== "active") {
+    throw new Error(`vehicle_owner not found for vehicle ${vehicle._id}`);
+  }
 
   // ── Mileage (guarded; violation returns needsReconfirm without writing) ──
   let mileageUpdated = false;
@@ -212,11 +216,17 @@ async function applyVehicleTruthImpl(
     { mileage?: number; date?: number; hedged?: boolean }
   >();
   for (const claim of args.service_claims ?? []) {
+    // Cards saved before the dispatcher mapped slugs still carry Haiku's own
+    // names ("cabin_air_filter_replacement" for filter_replacement).
+    const slug = canonicalServiceSlug(claim.service_slug) ?? claim.service_slug;
     if (claim.kind === "completed") {
       const hedged = claim.stated_confidence === "hedged";
-      const code = symptomForServiceSlug(claim.service_slug);
+      const code = symptomForServiceSlug(slug);
+      const recordType = recordTypeForServiceSlug(slug);
+      // Writes no record and clears no light: reporting it had the card say
+      // "logged" for a service that went nowhere (2026-10-01).
+      if (!code && !recordType) continue;
       if (code) codesToClear.push(code);
-      const recordType = recordTypeForServiceSlug(claim.service_slug);
       if (recordType) {
         completedRecordAnchors.set(recordType, {
           mileage: resolveServiceMileage(claim.service_mileage, owner.mileage ?? null),
@@ -224,11 +234,11 @@ async function applyVehicleTruthImpl(
           hedged,
         });
       }
-      servicesCompleted.push(claim.service_slug);
-      if (hedged) servicesCompletedHedged.push(claim.service_slug);
+      servicesCompleted.push(slug);
+      if (hedged) servicesCompletedHedged.push(slug);
     } else {
-      const code = symptomForServiceSlug(claim.service_slug);
-      if (code) { codesToAdd.push(code); servicesFlagged.push(claim.service_slug); }
+      const code = symptomForServiceSlug(slug);
+      if (code) { codesToAdd.push(code); servicesFlagged.push(slug); }
     }
   }
   // Canonicalize fault-light ids to the reader vocabulary before writing (e.g.

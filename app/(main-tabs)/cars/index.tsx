@@ -14,7 +14,7 @@ import ReAnimated, {
 } from "react-native-reanimated";
 import { useIsFocused } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
-import { ArrowLeft, Briefcase, Car, Check as CheckIcon, ChevronDown, Copy, Ellipsis, Gauge, Info, Plus, Route, Sparkles, Star, Sun, Users, X } from "lucide-react-native";
+import { ArrowLeft, Briefcase, CalendarClock, Car, Check as CheckIcon, ChevronDown, Copy, Ellipsis, Gauge, Info, Plus, Route, Sparkles, Star, Sun, Trash2, Users, X } from "lucide-react-native";
 import * as Clipboard from "expo-clipboard";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
@@ -43,6 +43,7 @@ try {
 const isMenuViewAvailable = !!UIManager.getViewManagerConfig?.("MenuView");
 
 import { haptics } from "@/lib/haptics";
+import { themedAlert } from "@/lib/themed-alert";
 import { useToast } from "@/hooks/useToast";
 import { useServiceRecordUpload } from "@/hooks/useServiceRecordUpload";
 import { catalogRecordType } from "@/utils/mergedMaintenance";
@@ -60,7 +61,9 @@ import Svg, { Circle, Defs, LinearGradient as SvgLinearGradient, Stop } from "re
 
 // 3. Convex & hooks
 import { useAction, useMutation, useQuery } from "convex/react";
+import { ConvexError } from "convex/values";
 import { api } from "@/convex/_generated/api";
+import { isUpcomingBookingErrorData } from "@/convex/lib/vehicleRemoval";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
 import { useMergedMaintenance } from "@/hooks/useMaintenanceData";
@@ -1843,7 +1846,9 @@ export default function CarsHomeScreen() {
     const vin = activeVehicle?.vin;
     if (!vin || !userId) return;
 
-    Alert.alert(
+    // Native Liquid Glass alert on iOS 26; the app's own confirm modal on
+    // Android and older iOS, where the system dialog looked out of place.
+    themedAlert(
       "Remove vehicle?",
       "This will remove the vehicle from your garage.",
       [
@@ -1856,6 +1861,23 @@ export default function CarsHomeScreen() {
               await removeOwner({ vin, userId });
             } catch (err) {
               console.warn("Remove vehicle failed:", err);
+              // An upcoming booking still needs this car (#395). Name the
+              // booking's day, and tapping the notice opens the booking so
+              // the driver can cancel it.
+              if (err instanceof ConvexError && isUpcomingBookingErrorData(err.data)) {
+                const { bookingId, dateLabel } = err.data;
+                toast.error(
+                  "This car has a booking",
+                  `${dateLabel ? `Booked for ${dateLabel}. ` : ""}Cancel it to remove this car. Tap to view it.`,
+                  {
+                    icon: CalendarClock,
+                    duration: 8000,
+                    onPress: () =>
+                      router.push(`/(main-tabs)/bookings?bookingId=${bookingId}` as never),
+                  },
+                );
+                return;
+              }
               // "Try again" is the wrong advice when the shop still has the
               // car — retrying will never work, and a driver told to retry a
               // permanent refusal will keep tapping. Surface the reason the
@@ -1874,9 +1896,9 @@ export default function CarsHomeScreen() {
           },
         },
       ],
-      { cancelable: true }
+      { cancelable: true, icon: Trash2 }
     );
-  }, [activeVehicle?.vin, userId, removeOwner]);
+  }, [activeVehicle?.vin, userId, removeOwner, router]);
 
   // Attach a real VIN to a manually-added car. Routes into the normal VIN
   // decode/review flow, carrying the manual ownership's id so the review

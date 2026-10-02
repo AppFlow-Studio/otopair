@@ -19,7 +19,8 @@
 // with the strict 17-char VIN charset, so the discrimination is unambiguous.
 // =============================================================================
 
-import type { QueryCtx } from "../_generated/server";
+import { v } from "convex/values";
+import { internalQuery, type QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 
 // A VIN is exactly 17 chars from the VIN alphabet (no I, O, or Q). Convex
@@ -53,3 +54,26 @@ export async function resolveVehicleByIdOrVin(
     return null; // not a valid Convex id and not VIN-shaped
   }
 }
+
+/**
+ * The vehicle_configs id to scope a retrieve_vehicle_facts lookup to. The
+ * prompt has Oto pass `vehicle_config_id` for "my car" questions, but the only
+ * id Oto sees is the <vehicle> block's `id`, a vehicles id, so every scoped
+ * lookup failed validation and the KB never answered (26 of 30 calls in the
+ * 2026-10-01 runs). Takes a vehicle_configs id, a vehicles id or a VIN; null
+ * for anything else.
+ */
+export const vehicleConfigIdFor = internalQuery({
+  args: { id: v.string() },
+  handler: async (ctx, { id }): Promise<Id<"vehicle_configs"> | null> => {
+    const configId = ctx.db.normalizeId("vehicle_configs", id);
+    if (configId) return configId;
+    const vehicleId = ctx.db.normalizeId("vehicles", id);
+    const vehicle = vehicleId
+      ? await ctx.db.get(vehicleId)
+      : isVinShaped(id)
+        ? await resolveVehicleByIdOrVin(ctx, id)
+        : null;
+    return vehicle?.vehicle_config_id ?? null;
+  },
+});

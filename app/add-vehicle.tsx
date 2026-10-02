@@ -9,15 +9,15 @@
  */
 
 // 1. React & React Native
-import React, { useState } from 'react';
-import { ActivityIndicator, Dimensions, Pressable, StyleSheet, View, TextInput, Keyboard } from 'react-native';
+import React, { useCallback, useState } from 'react';
+import { ActivityIndicator, Dimensions, Platform, Pressable, StyleSheet, View, TextInput, Keyboard } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // 2. Expo & Third-party
 import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
-import { useLocalSearchParams } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { ArrowLeft, QrCode, Edit3 } from 'lucide-react-native';
 import Animated, {
   Extrapolation,
@@ -25,7 +25,12 @@ import Animated, {
   useAnimatedStyle,
   useDerivedValue,
 } from 'react-native-reanimated';
-import { KeyboardStickyView, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
+import {
+  AndroidSoftInputModes,
+  KeyboardController,
+  KeyboardStickyView,
+  useReanimatedKeyboardAnimation,
+} from 'react-native-keyboard-controller';
 import { useAction, useQuery } from 'convex/react';
 
 // 3. App imports
@@ -90,6 +95,17 @@ export default function AddVehicleScreen() {
   // in the garage" rather than two queries that could disagree.
   const { vehicles: garage } = useVehicleOwnershipFromConvex();
   const { progress: keyboardProgress } = useReanimatedKeyboardAnimation();
+  // #444: the sticky VIN field only sits right while the window is in resize
+  // mode. The review screen's sheet resets the app to the manifest's pan mode
+  // when it unmounts, so coming back from "Vehicle Detected" left this screen
+  // in pan mode, and tapping the field slid the whole window up under the
+  // status bar. Re-assert resize every time this screen comes into focus.
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS !== 'android') return;
+      KeyboardController.setInputMode(AndroidSoftInputModes.SOFT_INPUT_ADJUST_RESIZE);
+    }, []),
+  );
 
   const decodeVin = useAction(api.vehicle_pipeline.decodeVin);
 

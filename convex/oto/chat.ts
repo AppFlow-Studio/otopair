@@ -63,6 +63,7 @@ import {
 } from "../../lib/symptomTracking";
 import { OTO_TOOL_CATEGORY, OTO_TOOLS, OTOPAIR_SERVICE_SLUGS } from "./tools";
 import {
+  errorResult,
   executeTool,
   mergeRenderDirectives,
   type ToolCallables,
@@ -79,6 +80,28 @@ import {
 } from "./telemetryAssembly";
 import { mapToolMoodToEpisodic } from "./moodMap";
 import { formatServiceDisplayName } from "../../utils/serviceDisplayName";
+import { localNow } from "./localTime";
+import { correctNamedWeekdayDates, correctYearlessServiceDates } from "./statedServiceDate";
+import {
+  asksToBook,
+  BOOKABLE_AVAILABILITY,
+  namedTimes,
+  namesATime,
+  shopsNamedIn,
+  talksShopTimes,
+} from "./shopAvailability";
+import {
+  carNotInGarage,
+  carPickerDeadEnd,
+  namesAnotherCar,
+  notInGarageReply,
+  refusesNotDue,
+  rewriteFalseLightAttribution,
+  rewritePrematureSaveClaims,
+  stripLeakedToolMarkup,
+  userNamedALight,
+} from "./replyGuards";
+import { bookingCardRejection, isServicePicker } from "./serviceSlugs";
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -109,6 +132,8 @@ const TOOL_NAMES_V1 = [
   "get_bookings",
   // Booking Status — Sprint 3 Day 5 §14.3
   "get_pending_bookings",
+  // Shop hours + open slots before a booking card opens (#434)
+  "check_shop_availability",
   "get_due_services",
   "get_vehicle_facts",
   // Data tools — knowledge base + lookups for general car questions
@@ -184,6 +209,7 @@ const TOOLS_FOR_HAIKU = OTO_TOOLS.filter((t) =>
     "get_bookings",
     // Booking Status — Sprint 3 Day 5 §14.3
     "get_pending_bookings",
+    "check_shop_availability",
     "get_due_services",
     "get_vehicle_facts",
     "lookup_vehicle_spec",
@@ -298,7 +324,11 @@ interface AnthropicMessage {
 // positive, so we know to remove the suppression rather than leave it.
 export const sendMessage = action({
   args: {
-    conversationId: v.id("ai_conversations"),
+    // Omitted on a new chat's first message: the action creates the
+    // conversation itself (see sendMessageHandler, #433).
+    conversationId: v.optional(v.id("ai_conversations")),
+    // Session id for that lazily created conversation.
+    sessionId: v.optional(v.string()),
     message: v.string(),
     // VIN of the vehicle the user has currently selected in the chat picker.
     // Optional — if omitted, the action falls back to most-recently-added.
@@ -322,6 +352,9 @@ export const sendMessage = action({
   // render tools without churning the validator on every change.
   returns: v.object({
     text: v.string(),
+    // The conversation this turn landed in — the one created here when the
+    // client sent no conversationId.
+    conversationId: v.optional(v.id("ai_conversations")),
     // Persisted assistant ai_messages row id (D-13/D-15 supersession check).
     assistantMessageId: v.optional(v.id("ai_messages")),
     // Persisted user ai_messages row id — lets the client edit a message it
@@ -376,6 +409,7 @@ export const sendMessage = action({
 // successful turns omit it.
 type SendMessageResult = {
   text: string;
+  conversationId?: Id<"ai_conversations">;
   // Persisted assistant ai_messages row id (absent on harness/skipPersist
   // runs). The client threads it into the live ChatMessage so the
   // vehicle-update card can run the D-13/D-15 supersession check.
@@ -434,8 +468,12 @@ type SendMessageResult = {
 // programmer errors (auth, schema, 401/403/400) stay loud.
 async function sendMessageHandler(
   ctx: any,
-  args: {
-    conversationId: Id<"ai_conversations">;
+  {
+    sessionId,
+    ...args
+  }: {
+    conversationId?: Id<"ai_conversations">;
+    sessionId?: string;
     message: string;
     vehicleVin?: string;
     debug?: boolean;
@@ -443,8 +481,19 @@ async function sendMessageHandler(
     replaceFromMessageId?: Id<"ai_messages">;
   },
 ): Promise<SendMessageResult> {
+  // #433: a new chat's first message used to take two round-trips — create
+  // the conversation, wait, then send. Killing the app in between (Android
+  // swipe-away) lost the question: it never reached the server, and the
+  // empty conversation is hidden from Recents. Creating it here makes the
+  // first send one request, like every later one; once the request is in,
+  // the turn completes and persists even if the phone dies.
+  const conversationId: Id<"ai_conversations"> =
+    args.conversationId ??
+    (await ctx.runMutation(api.ai_conversations.create, {
+      session_id: sessionId ?? `oto_${Date.now()}`,
+    }));
   try {
-    return await sendMessageHandlerCore(ctx, args);
+    return { ...(await sendMessageHandlerCore(ctx, { ...args, conversationId })), conversationId };
   } catch (e: unknown) {
     if (e instanceof AnthropicTransientError) {
       // Telemetry: a single warn at the boundary lets us count fallback rate
@@ -487,6 +536,7 @@ async function sendMessageHandler(
           : "Sorry — I had trouble reaching the model just now. Please try again.";
       return {
         text: friendlyText,
+        conversationId,
         error_kind: e.kind,
       };
     }
@@ -746,21 +796,49 @@ export async function sendMessageHandlerCore(
     vehicleVin,
   );
 
+  // Every car in the garage by display name, so Oto can tell a car the user
+  // doesn't own from another one they do (#434). The active car's name comes
+  // from the same lookup.
+  const garageDisplay = new Map<string, string>(
+    await Promise.all(
+      ownedVehicles
+        .filter((row) => row.vin)
+        .map(async (row): Promise<[string, string]> => {
+          const info: DisplayInfo | null = await ctx.runQuery(
+            api.vehicles.getDisplayInfoForVin,
+            { vin: row.vin },
+          );
+          return [
+            row.vin,
+            formatDisplayString(
+              info ?? { year: null, make: null, model: null, trim: null },
+              row.ownership?.nickname ?? null,
+            ),
+          ];
+        }),
+    ),
+  );
+
   let activeVehicle: ResolvedVehicle | null = null;
   if (activeRow?.vin) {
-    const info: DisplayInfo | null = await ctx.runQuery(
-      api.vehicles.getDisplayInfoForVin,
-      { vin: activeRow.vin },
-    );
-    const display = formatDisplayString(
-      info ?? { year: null, make: null, model: null, trim: null },
-      activeRow.ownership?.nickname ?? null,
-    );
+    const display =
+      garageDisplay.get(activeRow.vin) ??
+      formatDisplayString(
+        { year: null, make: null, model: null, trim: null },
+        activeRow.ownership?.nickname ?? null,
+      );
     if (activeRow.vehicle?._id) {
+      const ownershipId = activeRow.ownership?._id;
+      const mileage = ownershipId
+        ? await ctx.runQuery(internal.oto.vehicleFacts.getActiveVehicleMileage, {
+            ownershipId: ownershipId as Id<"vehicle_owners">,
+          })
+        : null;
       activeVehicle = {
         id: activeRow.vehicle._id,
         display,
         vin: activeRow.vin ?? null,
+        mileage,
       };
     }
   }
@@ -994,6 +1072,13 @@ export async function sendMessageHandlerCore(
     }
   }
 
+  const today = localNow();
+  // Only when the recent messages talk shops, days or times: finding the
+  // bookable shops reads three whole tables.
+  const recentUserTexts = [message, ...history.filter((h) => h.role === "user").slice(-3).map((h) => h.content)];
+  const shopsNamed = recentUserTexts.some(talksShopTimes)
+    ? shopsNamedIn(recentUserTexts, await ctx.runQuery(internal.oto.shopAvailability.bookableShopNames, {}))
+    : [];
   const envelope = buildEnvelope({
     userFirstName: user.first_name ?? null,
     vehicle: activeVehicle,
@@ -1004,6 +1089,9 @@ export async function sendMessageHandlerCore(
     priorConversationFacts: envelopePriorFacts,
     knowledgeLevel: knowledgeLabel(rawKnowledgeLevel),
     safetyOverride,
+    localNow: today,
+    garage: [...garageDisplay.values()],
+    shopsNamed,
   });
   // B-P4: the envelope carries raw user PII (vehicle, history, message,
   // established facts) — only log it on debug/harness runs, not every
@@ -1114,6 +1202,21 @@ export async function sendMessageHandlerCore(
   let finalText = "";
   let iterations = 0;
   let hitCap = false;
+  // Set when Oto checks a shop's hours this turn; the forced-exit backstop
+  // below must not open a booking card on that turn.
+  let checkedShopAvailability = false;
+  // The last availability answer this turn. A refused time gets no card.
+  let lastAvailabilityStatus: string | undefined;
+  // The HH:MM it checked, if it checked a time and not just the day.
+  let lastCheckedTime: string | undefined;
+  const readCheck = (content: string): { status?: string; time?: string } => {
+    try {
+      const data = JSON.parse(content).data;
+      return { status: data?.status, time: data?.time };
+    } catch {
+      return {};
+    }
+  };
 
   while (iterations < MAX_TOOL_ITERATIONS) {
     iterations++;
@@ -1191,6 +1294,7 @@ export async function sendMessageHandlerCore(
     const terminalToolUses: ToolUseBlock[] = [];
     for (const tu of toolUses) {
       const cat = OTO_TOOL_CATEGORY[tu.name];
+      if (tu.name === "check_shop_availability") checkedShopAvailability = true;
       if (cat === "data") dataToolUses.push(tu);
       else if (cat === "state" || cat === "model_routing") {
         // model_routing tools (request_sonnet_handoff / request_haiku_handback)
@@ -1206,12 +1310,45 @@ export async function sendMessageHandlerCore(
       }
     }
 
+    // A booking card naming no catalog service ("first_service" on a
+    // 5,000-mile G63, 57 of 466 card slugs on 2026-10-01) opened with nothing
+    // picked under "Everything's set up for the first service". Render results
+    // never reach the model, so the card goes back to it here as an error and
+    // the loop continues: the reply is written again and asks which services
+    // the user wants. On the last iteration the card goes out with whatever
+    // slugs the dispatcher maps.
+    const bookingCard = terminalToolUses.find((tu) => tu.name === "render_book_service");
+    const cardRejection =
+      bookingCard && iterations < MAX_TOOL_ITERATIONS
+        ? bookingCardRejection(bookingCard.input.service_slugs)
+        : null;
+    const rejectedResults: ToolResultBlock[] = [];
+    if (cardRejection !== null) {
+      console.warn(
+        `[oto/chat] iteration ${iterations}: booking card for ` +
+          `${JSON.stringify(bookingCard?.input.service_slugs)} sent back — not catalog services`,
+      );
+      for (const tu of terminalToolUses) {
+        rejectedResults.push(
+          errorResult(tu.id, "invalid_args", tu === bookingCard ? cardRejection : "Not shown: this reply is being written again."),
+        );
+      }
+      // Nothing in this response reaches the user, so its cards come off the
+      // audit row. Its state writes already ran and stay.
+      const notShown = new Set<unknown>(terminalToolUses.map((tu) => tu.input));
+      for (let i = accumulatedToolCalls.length - 1; i >= 0; i--) {
+        if (notShown.has(accumulatedToolCalls[i].input)) accumulatedToolCalls.splice(i, 1);
+      }
+    }
+
     const iterBranch =
-      terminalToolUses.length > 0
-        ? ("terminal" as const)
-        : dataToolUses.length === 0
-          ? ("text_only" as const)
-          : ("data_continue" as const);
+      cardRejection !== null
+        ? ("card_rejected" as const)
+        : terminalToolUses.length > 0
+          ? ("terminal" as const)
+          : dataToolUses.length === 0
+            ? ("text_only" as const)
+            : ("data_continue" as const);
     turnSamples.push({
       usage: resp.usage,
       latency_ms: latencyMs,
@@ -1297,8 +1434,9 @@ export async function sendMessageHandlerCore(
     if (trace) trace.iterations.push(traceIter);
 
     // Terminal tools (render + nav) dispatch in-process and contribute to
-    // the response payload. They do NOT participate in the API loop.
-    if (terminalToolUses.length > 0) {
+    // the response payload. They do NOT participate in the API loop. A
+    // rejected booking card continues the loop below instead.
+    if (terminalToolUses.length > 0 && cardRejection === null) {
       console.log(
         `[oto/chat] iteration ${iterations}: terminal tool_use(s): ` +
           terminalToolUses.map((tu) => tu.name).join(", ") +
@@ -1475,7 +1613,7 @@ export async function sendMessageHandlerCore(
       break;
     }
 
-    if (dataToolUses.length === 0) {
+    if (dataToolUses.length === 0 && cardRejection === null) {
       // No data tools this iteration. Three sub-cases:
       //   (a) Text emitted → terminal text turn. Most common path.
       //   (b) State tool emitted alongside text → terminal (state is side
@@ -1518,11 +1656,17 @@ export async function sendMessageHandlerCore(
       dataToolUses.map((tu) => executeTool(tu, callables)),
     );
     accumulatedResults.push(...dataResults);
-    if (traceIter) traceIter.tool_results = dataResults;
+    if (traceIter) traceIter.tool_results = [...dataResults, ...rejectedResults];
+    dataToolUses.forEach((tu, i) => {
+      if (tu.name !== "check_shop_availability") return;
+      const check = readCheck(dataResults[i].content);
+      lastAvailabilityStatus = check.status;
+      lastCheckedTime = check.time;
+    });
 
     messages.push({
       role: "user",
-      content: [...stateAckResults, ...dataResults],
+      content: [...stateAckResults, ...dataResults, ...rejectedResults],
     });
 
     if (iterations === MAX_TOOL_ITERATIONS) {
@@ -1591,6 +1735,11 @@ export async function sendMessageHandlerCore(
       };
     }
   }
+
+  // A tool call written into the reply comes out before any guard reads the
+  // reply, so a reply that was nothing but a leaked block counts as empty
+  // below. The voice line strips again for the repair call's text.
+  finalText = stripLeakedToolMarkup(finalText);
 
   // ── 6.9 State-contract retry (2026-08-14) ────────────────────────────
   // The prompt demands update_conversation_state on every substantive turn;
@@ -1687,6 +1836,232 @@ export async function sendMessageHandlerCore(
   let quickReplies = Array.isArray(renderEnvelope.quickReplies)
     ? (renderEnvelope.quickReplies as unknown[])
     : undefined;
+  // The reply asks which services the user wants: the drill-down for a
+  // request that names no catalog service ("set up that first service").
+  const servicePicker = isServicePicker(quickReplies);
+
+  // #376 — a service date said without a year ("on September 22") gets its
+  // most recent past year, whatever year the model guessed. Fixed before the
+  // card is shown or saved, so Confirm writes the right date.
+  const vehicleUpdate = renderEnvelope.showVehicleUpdate as
+    | { service_claims?: Array<{ kind?: unknown; service_date?: unknown }> }
+    | undefined;
+  if (vehicleUpdate?.service_claims) {
+    vehicleUpdate.service_claims = correctNamedWeekdayDates(
+      correctYearlessServiceDates(vehicleUpdate.service_claims, message, today.date),
+      message,
+      today.date,
+    );
+  }
+
+  // #434 — with the user's time found open, the model held the booking card
+  // to ask about a temperature light on the car's record first (3 of 10 runs),
+  // and turned down "set up that first service" at 5,000 miles as not due yet
+  // (3 of 20), after the tool descriptions said to book in both cases
+  // (2026-10-01). Told "fine, sunday at 10am then", it also answered without
+  // checking, twice saying 10 wasn't open because the earliest times it had
+  // been given ended at 9:45 (3 of 10). One repair asks for the reply again
+  // with the card, checking the time first when it hasn't been. If the model
+  // still leaves the card out, the reply stays as it was, unless it answers
+  // from a check of the user's own time made here: asked to check "just book
+  // 8pm", it checked the four afternoon times instead (2026-10-01).
+  const theirTimes = namedTimes(message);
+  {
+    // The last check found open the very time the user named.
+    const theirTimeOpen = () =>
+      BOOKABLE_AVAILABILITY.has(lastAvailabilityStatus ?? "") &&
+      lastCheckedTime !== undefined &&
+      theirTimes.includes(lastCheckedTime);
+    const held = theirTimeOpen();
+    const turnedDown =
+      (lastAvailabilityStatus === undefined || BOOKABLE_AVAILABILITY.has(lastAvailabilityStatus)) &&
+      asksToBook(message) &&
+      refusesNotDue(finalText);
+    const unchecked = !checkedShopAvailability && shopsNamed.length > 0 && theirTimes.length > 0;
+    const otherCard =
+      renderEnvelope.showRecordConfirmation !== undefined ||
+      renderEnvelope.showVehicleUpdate !== undefined ||
+      renderEnvelope.linkButton !== undefined ||
+      renderEnvelope.bookingCard !== undefined ||
+      renderEnvelope.bookingsList !== undefined;
+    // A reply asking which services the user wants has no service to book
+    // yet: asked for the card anyway, the model picks one for them.
+    if (
+      (held || turnedDown || unchecked) &&
+      !servicePicker &&
+      renderEnvelope.bookService === undefined &&
+      !otherCard &&
+      activeVehicle &&
+      !safetyFindings.some((f) => f.severity === "stop_now") &&
+      !namesAnotherCar({
+        message,
+        previousMessage: [...history].reverse().find((h) => h.role === "user")?.content,
+        chatCar: activeVehicle.display,
+        garage: [...garageDisplay.values()],
+      })
+    ) {
+      console.warn(
+        held
+          ? "[oto/chat] booking repair: the user's time is open but the reply held the card"
+          : turnedDown
+            ? "[oto/chat] booking repair: the reply turned the booking down as not due"
+            : "[oto/chat] booking repair: the user named a time and the reply didn't check it",
+      );
+      const repairTools = TOOLS_FOR_HAIKU.filter(
+        (t) =>
+          t.name === "check_shop_availability" ||
+          t.name === "render_book_service" ||
+          t.name === "update_conversation_state",
+      );
+      const askForCard =
+        "[turn repair — not the user speaking] check_shop_availability found the time the user just picked open, but your reply didn't open the booking card. Write the reply again with the card: call render_book_service now. A warning light, a symptom or a question about their records goes in the reply next to the card, never in place of it. Leave the card out only if it's truly unclear which service to book.";
+      const repairMessages: AnthropicMessage[] = [
+        ...messages,
+        ...(finalText.trim() ? [{ role: "assistant" as const, content: finalText }] : []),
+        {
+          role: "user",
+          content: held
+            ? askForCard
+            : turnedDown
+              ? "[turn repair — not the user speaking] The user asked to book this, and your reply turned it down because it isn't due yet. That's their call. Write the reply again: say at most once that it isn't due, then book it. If they named a shop and a day or time, check it with check_shop_availability first and open the card with render_book_service only if that time works; otherwise open the card now."
+              : "[turn repair — not the user speaking] The user named a time, and your reply answered without checking it. If they're picking a time to bring the car in, check that time with check_shop_availability now and answer from the result — when it's open, open the booking card with render_book_service, with any warning light, symptom or question about their records next to the card, never in place of it (leave the card out only if it's truly unclear which service to book). If they weren't picking a time, reply exactly as before.",
+        },
+      ];
+      let checkedInRepair = false;
+      let checkedTheirTime = false;
+      let askedForCard = held;
+      try {
+        for (let call = 0; call < 3; call++) {
+          const resp = await fetchAnthropicWithRetry(
+            ANTHROPIC_URL,
+            {
+              method: "POST",
+              headers: {
+                "x-api-key": apiKey,
+                "anthropic-version": ANTHROPIC_VERSION,
+                "content-type": "application/json",
+              },
+              body: JSON.stringify({
+                model: turnModel,
+                max_tokens: MAX_TOKENS,
+                system: SYSTEM_PROMPT,
+                tools: repairTools,
+                messages: repairMessages,
+              }),
+            },
+            "booking_repair",
+          );
+          if (!resp.ok) break;
+          const out = (await resp.json()) as AnthropicResponse;
+          const uses = out.content.filter(
+            (b): b is ToolUseBlock => b.type === "tool_use" && repairTools.some((t) => t.name === b.name),
+          );
+          const text = out.content
+            .filter((b): b is AnthropicTextBlock => b.type === "text")
+            .map((b) => b.text)
+            .join("\n")
+            .trim();
+          const card = uses.find((u) => u.name === "render_book_service");
+          const others = uses.filter((u) => u !== card);
+          const results = await Promise.all(others.map((u) => executeTool(u, callables)));
+          others.forEach((u, i) => {
+            if (u.name !== "check_shop_availability") {
+              accumulatedToolCalls.push({ name: u.name, input: u.input });
+              return;
+            }
+            checkedInRepair = checkedShopAvailability = true;
+            const check = readCheck(results[i].content);
+            lastAvailabilityStatus = check.status;
+            lastCheckedTime = check.time;
+            if (check.time !== undefined && theirTimes.includes(check.time)) checkedTheirTime = true;
+          });
+          turnSamples.push({
+            usage: out.usage,
+            latency_ms: 0,
+            tool_names: uses.map((u) => u.name),
+            branch: "booking_repair",
+          });
+          if (trace && Array.isArray(trace.iterations)) {
+            trace.iterations.push({
+              iteration: trace.iterations.length + 1,
+              booking_repair: true,
+              response: { id: out.id, model: out.model, stop_reason: out.stop_reason, usage: out.usage, content: out.content },
+              tool_results: results,
+              branch: "booking_repair",
+            });
+          }
+          // A card for a service the catalog doesn't have ("first_service")
+          // is a guess, and the main loop's check doesn't see this call: the
+          // reply stays as it was.
+          if (card && bookingCardRejection(card.input.service_slugs) !== null) break;
+          const checkedNow = others.some((u) => u.name === "check_shop_availability");
+          // A card next to a check counts only if that check left the time
+          // open; for a time nobody had checked, only once its own check has.
+          const cardOk = unchecked
+            ? theirTimeOpen()
+            : !checkedNow || BOOKABLE_AVAILABILITY.has(lastAvailabilityStatus ?? "");
+          if (card && cardOk) {
+            const bookService = mergeRenderDirectives([await executeTool(card, callables)]).bookService;
+            if (bookService !== undefined) {
+              accumulatedToolCalls.push({ name: card.name, input: card.input });
+              renderEnvelope.bookService = bookService;
+              renderEnvelope.quickReplies = undefined;
+              quickReplies = undefined;
+              // Asked for the card, the model answers the ask, not the user:
+              // "You're right — the card goes out now" (3 of 3 follow-ups) or
+              // no text at all (10 of 12 held cards, 2026-10-01). The reply
+              // the user was already getting stays, with the card under it.
+              if (!askedForCard || !finalText.trim()) finalText = text;
+            }
+            break;
+          }
+          // The model answers once it has seen what it looked up or saved.
+          if (checkedNow || (!text && others.length > 0)) {
+            repairMessages.push(
+              { role: "assistant", content: out.content.filter((b) => b.type !== "tool_use" || others.includes(b as ToolUseBlock)) },
+              { role: "user", content: results },
+            );
+            continue;
+          }
+          if (text && (unchecked ? checkedTheirTime : checkedInRepair)) finalText = text;
+          // The user's time is open and it held the card anyway, to ask about
+          // a warning light first (2 of the first 3 unchecked-time repairs,
+          // 2026-10-01): one more ask, as for a held card.
+          if (text && !askedForCard && theirTimeOpen()) {
+            askedForCard = true;
+            repairMessages.push({ role: "assistant", content: text }, { role: "user", content: askForCard });
+            continue;
+          }
+          break;
+        }
+      } catch (e: unknown) {
+        // Best-effort — a failed repair leaves the reply as it was.
+        console.error("[oto/chat] booking repair failed (swallowed):", (e as { message?: string })?.message);
+      }
+    }
+  }
+
+  // #434 — told "8 PM won't work, they close at 5", the model still opened a
+  // booking card under that reply in long chats, which reads as booking 8 PM
+  // anyway. The card goes out only when the last check found the time free or
+  // the day open, and was of the time the user named, if they named one:
+  // asked for "monday at 0800", the model checked 9:00 instead and opened the
+  // card under "Monday at 9 AM works" (3 such cards in 570 checked turns,
+  // all wrong, 2026-10-01).
+  const checkedAnotherTime =
+    lastCheckedTime !== undefined && theirTimes.length > 0 && !theirTimes.includes(lastCheckedTime);
+  if (
+    renderEnvelope.bookService !== undefined &&
+    lastAvailabilityStatus !== undefined &&
+    (!BOOKABLE_AVAILABILITY.has(lastAvailabilityStatus) || checkedAnotherTime)
+  ) {
+    console.warn(
+      checkedAnotherTime
+        ? `[oto/chat] dropped the booking card: it checked ${lastCheckedTime}, not the time the user named`
+        : `[oto/chat] dropped the booking card: the availability check said ${lastAvailabilityStatus}`,
+    );
+    delete renderEnvelope.bookService;
+  }
 
   // ── 7a0. Loyalty redirect-proxy suppression (2026-08-14) ─────────────
   // Loyalty is an in-chat domain with no link_button destination, and both
@@ -2065,7 +2440,12 @@ export async function sendMessageHandlerCore(
   // forced when: a record-confirmation / vehicle-update / booking / link /
   // card render fired (the model concluded — including via the trust gate),
   // or a stop_now safety finding is active (a booking card must not compete
-  // with a stop-driving instruction; the exit can happen next turn).
+  // with a stop-driving instruction; the exit can happen next turn), or Oto
+  // checked a shop's hours this turn, or the user named a time — they are
+  // choosing a time, and a card under "7 PM won't work, they close at 5" (or
+  // under "let me check that time") reads as booking it anyway (#434). Nor
+  // when the reply asks which services the user wants: a diagnostic scan in
+  // place of that question is a guess at their maintenance booking.
   const modelConcludedTurn =
     renderEnvelope.bookService !== undefined ||
     renderEnvelope.showRecordConfirmation !== undefined ||
@@ -2077,7 +2457,10 @@ export async function sendMessageHandlerCore(
   if (
     diagnosticTurnCount >= POLITE_EXIT_THRESHOLD &&
     !modelConcludedTurn &&
-    !stopNowActive
+    !stopNowActive &&
+    !checkedShopAvailability &&
+    !namesATime(message) &&
+    !servicePicker
   ) {
     const recentUserTurns: string[] = [];
     for (const h of Array.isArray(history) ? history.slice(-8) : []) {
@@ -2115,6 +2498,37 @@ export async function sendMessageHandlerCore(
     }
   }
 
+  // #434 — the car picker lists only the garage, so "start a new chat from
+  // the car picker for your wife's Civic" sent the user nowhere (8 of 10
+  // checked turns, 2026-10-01). Say the car isn't in the garage and open the
+  // add-a-car screen instead. Same when the model opened a booking card for
+  // that car: the card books the chat's own car.
+  {
+    const previousMessage = [...history].reverse().find((h) => h.role === "user")?.content;
+    const garage = [...garageDisplay.values()];
+    const deadEnd = carPickerDeadEnd({
+      reply: finalText,
+      message,
+      previousMessage,
+      garage,
+      linkDestination: (renderEnvelope.linkButton as { destination?: string } | undefined)?.destination,
+    });
+    const car =
+      deadEnd ?? (renderEnvelope.bookService !== undefined ? carNotInGarage({ message, previousMessage, garage }) : null);
+    if (car) {
+      console.warn(
+        deadEnd
+          ? "[oto/chat] car-picker dead end for a car not in the garage — opening add-a-car instead"
+          : "[oto/chat] booking card for a car not in the garage — opening add-a-car instead",
+      );
+      finalText = notInGarageReply(car);
+      renderEnvelope.linkButton = { destination: "vehicle_onboarding" };
+      delete renderEnvelope.bookService;
+      renderEnvelope.quickReplies = undefined;
+      quickReplies = undefined;
+    }
+  }
+
   const showRecordConfirmation =
     renderEnvelope.showRecordConfirmation &&
     typeof renderEnvelope.showRecordConfirmation === "object"
@@ -2138,16 +2552,15 @@ export async function sendMessageHandlerCore(
     renderEnvelope.bookingsList !== undefined ||
     renderEnvelope.reasoning !== undefined ||
     renderEnvelope.sources !== undefined;
-  if (!finalText && !hasAnyRender) {
+  const emptyReply = !finalText && !hasAnyRender;
+  if (emptyReply) {
     console.error(
       "[oto/chat] no text + no render after tool loop. iterations=" +
         iterations +
         " hitCap=" +
         hitCap +
-        " — returning fallback text",
+        " — asking for the reply once",
     );
-    finalText =
-      "I'm having trouble pulling that one together — can you rephrase or break it into a smaller question?";
   }
 
   // ── Announcement-terminal retry (2026-08-15) ─────────────────────────
@@ -2162,6 +2575,9 @@ export async function sendMessageHandlerCore(
   // answer. The nudge tells the model to restate its answer if the text
   // actually contained one, so a false-positive detection costs one small
   // call and returns an equivalent answer — never a worse one.
+  // An empty reply gets the same one call (2026-10-01): Haiku looked up
+  // "timing belt or chain?", got "timing chain" back, then ended the turn
+  // with no text, and the user saw the fallback below instead.
   {
     const trimmed = finalText.trim();
     const sentences = trimmed.split(/(?<=[.!?:])\s+/).filter(Boolean);
@@ -2169,15 +2585,18 @@ export async function sendMessageHandlerCore(
     const ANNOUNCE_RE =
       /\b(let me|i'?ll|i will|i'?m going to|gonna)\s+(search|look\s*up|pull|grab|fetch|dig|run|check)\b/i;
     if (
-      !hasAnyRender &&
-      trimmed.length > 0 &&
-      trimmed.length < 280 &&
-      ANNOUNCE_RE.test(lastSentence)
+      emptyReply ||
+      (!hasAnyRender &&
+        trimmed.length > 0 &&
+        trimmed.length < 280 &&
+        ANNOUNCE_RE.test(lastSentence))
     ) {
       try {
         console.warn(
-          "[oto/chat] announcement-terminal retry: turn ended on an action " +
-            "announcement with no answer — requesting the completion",
+          emptyReply
+            ? "[oto/chat] empty-reply retry: turn ended with no text — requesting the answer"
+            : "[oto/chat] announcement-terminal retry: turn ended on an action " +
+                "announcement with no answer — requesting the completion",
         );
         const retryResp = await fetchAnthropicWithRetry(
           ANTHROPIC_URL,
@@ -2196,8 +2615,9 @@ export async function sendMessageHandlerCore(
                 ...messages,
                 {
                   role: "user",
-                  content:
-                    "[turn repair — not the user speaking] Your turn ended by announcing a search or lookup instead of delivering the answer. Deliver the complete answer NOW in plain prose: use general knowledge hedged as general info where catalog data was missing. Do not mention tools, lookups, or searching; do not announce anything. If your previous text already contained the full answer, restate that answer.",
+                  content: emptyReply
+                    ? "[turn repair — not the user speaking] Your turn ended without any reply. Answer the user's last message NOW in plain prose, using the tool results above. Do not mention tools, lookups, or searching; do not announce anything."
+                    : "[turn repair — not the user speaking] Your turn ended by announcing a search or lookup instead of delivering the answer. Deliver the complete answer NOW in plain prose: use general knowledge hedged as general info where catalog data was missing. Do not mention tools, lookups, or searching; do not announce anything. If your previous text already contained the full answer, restate that answer.",
                 },
               ],
             }),
@@ -2232,6 +2652,10 @@ export async function sendMessageHandlerCore(
         );
       }
     }
+  }
+  if (!finalText && !hasAnyRender) {
+    finalText =
+      "I'm having trouble pulling that one together — can you rephrase or break it into a smaller question?";
   }
 
   // W3.1 companion fallback — same conditions-in-code/absolutes-in-prompts
@@ -2312,7 +2736,27 @@ export async function sendMessageHandlerCore(
   // server-side as belt-and-suspenders. If real safety-critical emphasis is
   // ever needed in v0.8+, swap this for a directive that the chat UI
   // renders specially.
-  finalText = lowercaseUrgencyCaps(rewriteNarrationSlips(stripVoiceMarkup(finalText)));
+  finalText = lowercaseUrgencyCaps(rewriteNarrationSlips(stripVoiceMarkup(stripLeakedToolMarkup(finalText))));
+
+  // A card is only a proposal until the user confirms it, yet the 2026-10-01
+  // runs had "is locked in", "has you down for" and "just logged that" on the
+  // turn the card appeared.
+  finalText = rewritePrematureSaveClaims(finalText, {
+    booking: renderEnvelope.bookService !== undefined,
+    vehicleUpdate: renderEnvelope.showVehicleUpdate !== undefined,
+  });
+  // A warning light Oto found on the car's record came back a turn later as
+  // "you mentioned a temperature light" when the user never had. Every ledger
+  // row counts here, not just the open ones in openSymptomRows: a light the
+  // user named and later dismissed was still named.
+  const symptomCategories = [
+    ...(((conversation as Record<string, unknown>).open_symptoms as { category: string }[] | undefined) ?? []),
+    ...symptomsAppendedThisTurn,
+  ].map((s) => s.category);
+  const userMessages = [message, ...sortedMessages.filter((m) => m.role === "user").map((m) => m.content)];
+  if (!userNamedALight(userMessages, symptomCategories)) {
+    finalText = rewriteFalseLightAttribution(finalText);
+  }
 
   // Wave 1 output guards: drop sentences carrying banned claims (fabricated
   // prices, warranty promises, internal-architecture nouns). Currency is
@@ -2705,6 +3149,10 @@ export async function sendMessageHandlerCore(
       let nextCount: number | null = null;
       if (renderedBooking) {
         nextCount = 0;
+      } else if (servicePicker) {
+        // Asking which services the user wants holds the count, whatever the
+        // intent tag says: two of these questions ("Something else" → asked
+        // again) must not force a diagnostic scan onto a maintenance booking.
       } else {
         const fresh = await ctx.runQuery(internal.ai_conversations.getById, {
           id: conversationId,
@@ -3026,6 +3474,25 @@ const OUTPUT_GUARD_PATTERNS: { category: GuardCategory; re: RegExp }[] = [
   // "quick replies"/"quick-reply" only — singular unhyphenated "a quick reply
   // to your question" is legitimate prose and stays allowed.
   { category: "internal_noun", re: /\bbooking flow\b|\bquick replies\b|\bquick-repl(?:y|ies)\b|\btrust[- ]gat(?:e|ing)\b|\bintent ladder\b|\bstate tool\b|\bterminal render\b|\bdiagnostic domain\b|\brender_[a-z_]+\b|\bservice[- ]slugs?\b/i },
+  // Polite-exit narration (2026-10-01): the <polite_exit_required> block
+  // (envelope.ts) and the stable prompt's polite-exit rule came back as the
+  // model's to-do list — "The polite-exit threshold (3 narrowing turns) has
+  // been reached, and I need to prefill the diagnostic booking now." 6 of
+  // 3,424 replies in the 2026-10-01 harness runs, 5 more sentences in the
+  // saved eval runs. "terminal state" / "reach a terminal" are the block's
+  // own wording and also leaked without "polite-exit" ("before reaching the
+  // terminal state on this vibration symptom"). Bare "threshold" ("you're
+  // right at that threshold") and "narrowing" ("worth narrowing down") stay
+  // allowed: both are common in legitimate replies.
+  { category: "internal_noun", re: /\bpolite[-_ ]exit|\bnarrowing turns?\b|\bterminal state\b|\breach(?:es|ed|ing)? a terminal\b/i },
+  // Third-person self-talk: Oto talks to the user as "you", so "the user" in
+  // a reply is the model reasoning about them ("The user is stating a
+  // completed service (oil change, Sept 22) AND we're at the polite-exit
+  // threshold", 2026-10-01). 27 such sentences in 6,031 saved harness and
+  // eval replies, none legitimate. "the customer", "the driver" and "the owner"
+  // are NOT guarded (Customer Support, driver's side, the shop owner); the
+  // lookahead keeps "the user manual" / "the user's guide".
+  { category: "internal_noun", re: /\bthe user\b(?!['’]?s?\s+(?:manual|guide)s?\b)/i },
   // D-41 — labor time is a price in disguise (shops bill by the hour, so
   // "about 2 hours of labor" is a quote the user finishes with arithmetic).
   // Guards only QUANTIFIED labor time so the legitimate shapes survive:
@@ -3071,8 +3538,10 @@ const OUTPUT_GUARD_PATTERNS: { category: GuardCategory; re: RegExp }[] = [
  * rewards rule). The caller passes whether that tool fired — a deterministic
  * condition, unlike asking the model to hold "quote only sourced figures"
  * mid-sentence, which is exactly the conditional rule Q1 rejected.
+ *
+ * Exported for tests/otoOutputGuard.test.ts.
  */
-function stripBannedClaims(
+export function stripBannedClaims(
   s: string,
   opts: { allowCurrency: boolean },
 ): { text: string; dropped: GuardCategory[] } {
@@ -3533,6 +4002,16 @@ function buildCallables(
       });
     },
 
+    // #434 — shop hours + open slots for the day/time the user asked for.
+    check_shop_availability: async (input) => {
+      return await ctx.runQuery(internal.oto.shopAvailability.checkShopAvailability, {
+        shop_name: typeof input.shop_name === "string" ? input.shop_name : "",
+        date: typeof input.date === "string" ? input.date : "",
+        ...(typeof input.time === "string" && input.time ? { time: input.time } : {}),
+        ...(typeof input.weekday === "string" && input.weekday ? { weekday: input.weekday } : {}),
+      });
+    },
+
     /**
      * get_due_services — overdue + due_soon services for the active vehicle.
      * `vehicle_id` is the Convex `vehicles._id` from the <vehicle> envelope
@@ -3652,15 +4131,20 @@ function buildCallables(
       const question_text =
         typeof input.question_text === "string" ? input.question_text : "";
       const limit = typeof input.limit === "number" ? input.limit : undefined;
-      const vehicle_config_id = input.vehicle_config_id as
-        | Id<"vehicle_configs">
-        | undefined;
+      // Oto passes the <vehicle> block's `id` (a vehicles id) here; scope to
+      // that car's config.
+      const vehicle_config_id =
+        typeof input.vehicle_config_id === "string" && input.vehicle_config_id
+          ? ((await ctx.runQuery(internal.oto.resolveVehicle.vehicleConfigIdFor, {
+              id: input.vehicle_config_id,
+            })) ?? undefined)
+          : undefined;
 
       // EvalTest filter — short-circuit before invoking the cascade.
       if (vehicle_config_id) {
         const isEval = (await ctx.runQuery(
           internal.oto.evalTestFilter.isEvalTestConfigId,
-          { vehicleConfigId: vehicle_config_id },
+          { vehicle_config_id },
         )) as boolean;
         if (isEval) {
           return { mode: "kb_v3_cascade", tier: null, facts: [] };

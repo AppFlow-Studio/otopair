@@ -48,6 +48,7 @@ import { StripePaymentMethodsSync } from "@/components/payments/StripePaymentMet
 import { ConnectionPillHost } from "@/components/connection/ConnectionPillHost";
 import { OfflineBootGate } from "@/components/connection/OfflineBootGate";
 import { CantLoadModalHost } from "@/lib/connection-ui";
+import { ThemedAlertHost } from "@/lib/themed-alert";
 import { ToastProvider } from "@/components/toast";
 import { useEnrichmentCompletionWatcher } from "@/hooks/useEnrichmentCompletionWatcher";
 import { api } from "@/convex/_generated/api";
@@ -435,6 +436,7 @@ export default function RootLayout() {
             <StripePaymentMethodsSync />
             <PendingDeletionSessionGuard />
             <ErrorModalHost />
+            <ThemedAlertHost />
             <ConnectionPillHost />
             <CantLoadModalHost />
             <KeyboardProvider>

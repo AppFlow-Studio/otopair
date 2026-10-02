@@ -13,6 +13,10 @@
 // tag name as the "treat-as-data" anchor.
 // =============================================================================
 
+import { calendarAround, type LocalNow } from "./localTime";
+import { namesATime } from "./shopAvailability";
+import { pastWeekdaysNamed } from "./statedServiceDate";
+
 export interface OwnedVehicleRow {
   vin: string;
   vehicle: {
@@ -38,6 +42,10 @@ export interface ResolvedVehicle {
   /** Real VIN. Exposed in the <vehicle> envelope block so Haiku can
    *  pass it to vehicle-scoped tools like `get_bookings`. */
   vin: string | null;
+  /** Current odometer as the garage shows it. Without it in the envelope
+   *  Oto answered "how many miles are on my car?" with "I don't have your
+   *  mileage on file" — no tool description advertises mileage (#425). */
+  mileage?: number | null;
 }
 
 export interface HistoryTurn {
@@ -127,6 +135,15 @@ interface BuildEnvelopeArgs {
   // Defaults to Date.now() at call time when omitted (production path);
   // tests pin it explicitly so format output is deterministic.
   now?: number;
+  // Today in New York time. Without it Oto guessed the year of "September 22"
+  // (#376) and couldn't tell what "tomorrow" meant (#434).
+  localNow?: LocalNow | null;
+  // Display names of every car in the user's garage, so Oto can tell a car
+  // they don't own ("my 2019 Honda Civic") from another one they do (#434).
+  garage?: string[];
+  // Bookable shops the user named in recent messages, so Oto checks "anesa
+  // shop" instead of asking which shop they mean (#434).
+  shopsNamed?: string[];
 }
 
 // Lowered 6 → 4 (beta feedback: a stranded user hit "just get me a mechanic"
@@ -272,6 +289,9 @@ export function buildEnvelope({
   knowledgeLevel,
   safetyOverride,
   now,
+  localNow,
+  garage,
+  shopsNamed,
 }: BuildEnvelopeArgs): string {
   const blocks: string[] = [];
   const nowMs = typeof now === "number" ? now : Date.now();
@@ -281,6 +301,18 @@ export function buildEnvelope({
   // Drives the prompt's "Knowledge-level adaptation" rule (beginner → plain
   // + answer-first; experienced → can go more technical).
   if (knowledgeLevel) userLines.push(`  car_knowledge: ${knowledgeLevel}`);
+  if (localNow) {
+    userLines.push(`  today: ${localNow.weekday} ${localNow.date}, ${localNow.time} New York time`);
+    const days = calendarAround(localNow.date).map(
+      (d) => `${d.weekday} ${d.date}${d.date === localNow.date ? " (today)" : ""}`,
+    );
+    userLines.push(`  calendar: ${days.join(", ")}`);
+    for (const day of pastWeekdaysNamed(userMessage, localNow.date)) {
+      userLines.push(`  "${day.said}" in the message: ${day.weekday} ${day.date}`);
+    }
+  }
+  if (garage && garage.length > 0) userLines.push(`  garage: ${garage.join("; ")}`);
+  if (shopsNamed && shopsNamed.length > 0) userLines.push(`  shops named: ${shopsNamed.join("; ")}`);
   userLines.push(`</user>`);
   blocks.push(userLines.join("\n"));
 
@@ -293,6 +325,9 @@ export function buildEnvelope({
     // Expose VIN so vehicle-scoped tools (get_bookings, etc.) can be
     // filtered to the active car when the user's question is car-scoped.
     if (vehicle.vin) vehicleLines.push(`  vin: ${vehicle.vin}`);
+    if (typeof vehicle.mileage === "number" && Number.isFinite(vehicle.mileage)) {
+      vehicleLines.push(`  current_mileage: ${Math.round(vehicle.mileage).toLocaleString("en-US")} mi`);
+    }
     vehicleLines.push(`</vehicle>`);
     blocks.push(vehicleLines.join("\n"));
   }
@@ -361,7 +396,11 @@ export function buildEnvelope({
   // exists and why it is tone-blind.
   if (safetyOverride) blocks.push(safetyOverride);
 
-  if (diagnosticTurnCount >= POLITE_EXIT_THRESHOLD) {
+  // Not on a turn that names a time: told "just book 8pm" after 8 PM was
+  // refused, the model opened the card because this block said to, writing
+  // "the polite-exit threshold has been reached" into the reply (1 of 10
+  // runs, 2026-10-01). chat.ts's forced exit stands down on those turns too.
+  if (diagnosticTurnCount >= POLITE_EXIT_THRESHOLD && !namesATime(userMessage)) {
     blocks.push(
       [
         `<polite_exit_required>`,

@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
   Alert,
   Dimensions,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -965,7 +966,11 @@ export default function AddVehicleReviewScreen() {
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.colorRow}
+                style={Platform.OS === 'android' ? styles.colorScrollAndroid : undefined}
+                contentContainerStyle={[
+                  styles.colorRow,
+                  Platform.OS === 'android' && styles.colorRowAndroid,
+                ]}
               >
                 {CAR_COLORS.map((c) => (
                   <ColorSwatchItem
@@ -1387,6 +1392,18 @@ const styles = StyleSheet.create({
     gap: scale(14),
     paddingVertical: scale(4),
     paddingRight: scale(8),
+  },
+  // #286 (Android): the row scrolled inside the card's padding, so swatches
+  // were cut off a little way inside the card on both sides. Run it out to
+  // the card's edges (padding moved into the content) so swatches slide
+  // under the edge instead.
+  colorScrollAndroid: {
+    marginLeft: -scale(16),
+    marginRight: -scale(8),
+  },
+  colorRowAndroid: {
+    paddingLeft: scale(16),
+    paddingRight: scale(16),
   },
   swatchPress: {
     // 64 fitted roughly nine characters a line, which turned every "Designo

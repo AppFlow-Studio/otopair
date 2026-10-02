@@ -47,6 +47,7 @@ import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
 import { SettingsContent } from "@/components/settings/SettingsContent";
 import { ANDROID_REAL_BLUR } from "@/components/shared-ui/AndroidBlurTarget";
 import { api } from "@/convex/_generated/api";
+import { useClerkProfileImage } from "@/hooks/useClerkProfileImage";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import {
   useSettingsOverlayStore,
@@ -130,12 +131,13 @@ export function SettingsContainerTransformOverlay({
     [me?.first_name, me?.last_name, firstName, lastName],
   );
 
+  const clerkImage = useClerkProfileImage();
   const photoUri = useMemo(() => {
     if (me?.profile_photo_storage_id && me?.profile_photo_url)
       return me.profile_photo_url;
     if (storedPhoto) return storedPhoto;
-    return null;
-  }, [me?.profile_photo_storage_id, me?.profile_photo_url, storedPhoto]);
+    return clerkImage;
+  }, [me?.profile_photo_storage_id, me?.profile_photo_url, storedPhoto, clerkImage]);
 
   const [settled, setSettled] = useState(false);
   const [openSequence, setOpenSequence] = useState(0);

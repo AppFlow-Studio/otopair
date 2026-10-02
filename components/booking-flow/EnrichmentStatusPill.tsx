@@ -67,7 +67,10 @@ import { useVehicleStore } from "@/stores/useVehicleStore";
 // Sit the compact pill just above the tab bar. The iOS 26 native tab bar
 // occupies ~49pt above the home indicator; this clearance parks the pill
 // a hair above it (was 84 — too high, read as floating mid-content).
-const TAB_BAR_CLEARANCE = 60;
+// Android draws the custom <TabBar> instead, whose top sits 78pt above the
+// inset (8pt gap + 70pt bar), so the iOS clearance parked the pill over the
+// bar (#199). Same ~10pt gap above it as on iOS.
+const TAB_BAR_CLEARANCE = Platform.OS === "android" ? 78 + 10 : 60;
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 // Compact one-detent sheet: header + copy + a single "thinking" ticker + button.

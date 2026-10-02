@@ -74,7 +74,8 @@ export const getRecordForConfirmation = query({
         q.eq("vin", vehicle.vin).eq("user_id", user._id),
       )
       .unique();
-    if (!owner) {
+    // A removed car keeps its row (soft delete, #395) but is out of the garage.
+    if (!owner || owner.status !== "active") {
       throw new Error(`vehicle_owner not found for vehicle ${args.vehicle_id}`);
     }
 
