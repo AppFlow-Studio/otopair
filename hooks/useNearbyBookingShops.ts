@@ -12,10 +12,15 @@
  * Pure client-side derivation — no new Convex query. Mirrors
  * useDefaultBookingShop but returns an ordered list instead of the
  * single best match.
+ *
+ * Non-covering shops stay in the list (behind every covering one) but carry
+ * `missingServiceIds`, so Choose Mechanic can label them "Doesn't offer …"
+ * and refuse to book them (bug #404) instead of hiding them unexplained.
  */
 
 import { useMemo } from "react";
 
+import { servicesShopDoesntOffer } from "@/lib/shopServiceCoverage";
 import { distanceBetween } from "@/utils/geo";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useShopStore } from "@/stores/useShopStore";
@@ -27,6 +32,9 @@ export interface NearbyShopResult {
   shop: Shop;
   distanceMi: number;
   coversAll: boolean;
+  /** Cart services this shop doesn't offer, in cart order (empty when
+   *  `coversAll`). */
+  missingServiceIds: string[];
 }
 
 export function useNearbyBookingShops(limit = 5): {
@@ -43,7 +51,12 @@ export function useNearbyBookingShops(limit = 5): {
     if (shopIds.length === 0) return { results: [], isLoading: true };
     if (!userLocation) return { results: [], isLoading: isLoadingLocation };
 
-    const candidates: { shop: Shop; km: number; coversAll: boolean }[] = [];
+    const candidates: {
+      shop: Shop;
+      km: number;
+      coversAll: boolean;
+      missingServiceIds: string[];
+    }[] = [];
     for (const id of shopIds) {
       const shop = shops[id];
       if (!shop) continue;
@@ -52,11 +65,9 @@ export function useNearbyBookingShops(limit = 5): {
         { latitude: userLocation.latitude, longitude: userLocation.longitude },
         { latitude: shop.latitude, longitude: shop.longitude },
       );
-      const coversAll =
-        selectedServiceIds.length === 0
-          ? true
-          : selectedServiceIds.every((sid) => shop.serviceIds.includes(sid));
-      candidates.push({ shop, km, coversAll });
+      const missingServiceIds = servicesShopDoesntOffer(shop, selectedServiceIds) ?? [];
+      const coversAll = missingServiceIds.length === 0;
+      candidates.push({ shop, km, coversAll, missingServiceIds });
     }
 
     candidates.sort((a, b) => {
@@ -82,6 +93,7 @@ export function useNearbyBookingShops(limit = 5): {
       shop: c.shop,
       distanceMi: c.km / KM_PER_MI,
       coversAll: c.coversAll,
+      missingServiceIds: c.missingServiceIds,
     }));
     return { results: top, isLoading: false };
   }, [shopIds, shops, userLocation, isLoadingLocation, selectedServiceIds, limit]);

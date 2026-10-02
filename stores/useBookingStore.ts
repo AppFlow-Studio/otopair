@@ -21,6 +21,7 @@ import { resolveBasketVehicleVin } from "@/utils/bookingVehicle";
 import { useVehicleStore } from "./useVehicleStore";
 import type { DiagnosticSystem } from "@/lib/diagnostic-checklist-templates";
 import type { Id } from "@/convex/_generated/dataModel";
+import type { ExpectedCheckoutPrice } from "@/convex/lib/checkoutPrice";
 import type {
   Booking,
   BookingStage,
@@ -81,6 +82,44 @@ export interface QuoteAcceptContext {
   partsCost: number;
   lineItems: { label: string; amount: number }[];
   quoteTotal: number;
+}
+
+// ─────────────────────────────────────────────────────────────
+// CHECKOUT PRICE SNAPSHOT (bug #390)
+// ─────────────────────────────────────────────────────────────
+
+/** What Review & Pay rendered at the moment the customer tapped Authorize.
+ *  `price` is the exact wire shape `createBatch({ expected_price })` takes;
+ *  `formatted` is the total line the screen showed, so the confirm sheet
+ *  quotes the price the customer agreed to — not whatever the live queries
+ *  say a few seconds later. Written once per Authorize tap, never rebuilt at
+ *  submit time (a snapshot rebuilt from live data equals the new price and
+ *  defeats the server's PRICE_CHANGED check). */
+export interface CheckoutPriceSnapshot {
+  price: ExpectedCheckoutPrice;
+  formatted: string;
+  capturedAt: number;
+}
+
+/** A PRICE_CHANGED rejection bounced back from /confirming to Review & Pay,
+ *  so the payment screen can ask "The price changed from X to Y. Continue?". */
+export interface CheckoutPriceChangeNotice {
+  /** The server's sentence (names the service and the old/new line price). */
+  message: string;
+  /** Total the customer agreed to (snapshot), e.g. "$85.00". */
+  previousFormatted: string | null;
+  /** The server's new all-in total, when it sent one. */
+  newFormatted: string | null;
+}
+
+/** The slot a hold covers — enough to re-hold the same slot when a leased
+ *  hold lapses (app backgrounded past the lease, bug #393). */
+export interface SlotHoldSpec {
+  shopId: string;
+  mechanicId: string | null;
+  date: string;
+  startTime: string;
+  durationMinutes: number;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -197,8 +236,21 @@ interface BookingState {
   holdSessionId: string | null;
   /** Active slot hold for the current checkout (null = none / feature off). */
   holdId: string | null;
-  /** Absolute ms when the hold expires — powers the countdown. */
+  /** Absolute ms when the hold expires. For a leased hold (#393) this is the
+   *  lease edge (~90 s out, pushed forward by the heartbeat), not the
+   *  checkout's time limit — see `holdHardExpiresAt`. */
   holdExpiresAt: number | null;
+  /** Absolute ms the hold can live to at most (the Director TTL cap). Equals
+   *  `holdExpiresAt` for a non-lease hold; null when unknown. Powers the
+   *  "Held m:ss" countdown. */
+  holdHardExpiresAt: number | null;
+  /** The slot the current hold covers, when the picker recorded it. The
+   *  heartbeat re-holds exactly this slot if the lease lapses. */
+  holdSpec: SlotHoldSpec | null;
+  /** Review & Pay's price at the last Authorize tap (#390). */
+  checkoutPriceSnapshot: CheckoutPriceSnapshot | null;
+  /** Pending "price changed" prompt for Review & Pay (#390). */
+  checkoutPriceChange: CheckoutPriceChangeNotice | null;
 
   // ═══════════════ BOOKING STATE ═══════════════
   /** All bookings indexed by ID */
@@ -249,6 +301,9 @@ interface BookingState {
   ) => void;
   /** Clear all selected services */
   clearSelectedServices: () => void;
+  /** Drop specific services from the cart (e.g. ones the shop stopped
+   *  offering mid-checkout, #404), with the same VIN bookkeeping as a toggle. */
+  removeSelectedServices: (serviceIds: string[]) => void;
   /** Explicitly set the in-flight booking's vehicle VIN (call sites that
    *  start a booking without going through toggleServiceSelection). */
   setSelectedVehicleVin: (vin: string | null) => void;
@@ -300,10 +355,24 @@ interface BookingState {
   // ═══════════════ SLOT HOLD ACTIONS ═══════════════
   /** Return the session id, generating a fresh one on first call. */
   ensureHoldSessionId: () => string;
-  /** Stash the acquired hold (null clears). */
-  setSlotHold: (hold: { holdId: string; expiresAt: number } | null) => void;
+  /** Stash the acquired hold (null clears). `hardExpiresAt`/`spec` are
+   *  optional so callers that predate the lease (#393) keep compiling. */
+  setSlotHold: (
+    hold: {
+      holdId: string;
+      expiresAt: number;
+      hardExpiresAt?: number | null;
+      spec?: SlotHoldSpec | null;
+    } | null,
+  ) => void;
+  /** Heartbeat result: move the lease edge (and cap, when known) forward. */
+  updateSlotHoldExpiry: (expiresAt: number, hardExpiresAt?: number | null) => void;
   /** Clear the hold + session id (call after release/consume). */
   clearSlotHold: () => void;
+  /** Record / clear Review & Pay's price at Authorize (#390). */
+  setCheckoutPriceSnapshot: (snapshot: CheckoutPriceSnapshot | null) => void;
+  /** Record / clear a PRICE_CHANGED prompt for Review & Pay (#390). */
+  setCheckoutPriceChange: (notice: CheckoutPriceChangeNotice | null) => void;
 
   /** Reset booking flow to initial state */
   resetBookingFlow: () => void;
@@ -498,6 +567,10 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   holdSessionId: null,
   holdId: null,
   holdExpiresAt: null,
+  holdHardExpiresAt: null,
+  holdSpec: null,
+  checkoutPriceSnapshot: null,
+  checkoutPriceChange: null,
   bookings: {},
   bookingIds: [],
   draftBooking: null,
@@ -625,6 +698,20 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       customerNotes: "",
       quoteAcceptContext: null,
     }),
+
+  removeSelectedServices: (serviceIds) => {
+    // Reuse the toggle so the basket-VIN snapshot/clear rules stay in one
+    // place; drop the option picks for the removed lines alongside.
+    const drop = new Set(serviceIds.map(String));
+    for (const id of get().selectedServiceIds) {
+      if (drop.has(String(id))) get().toggleServiceSelection(id);
+    }
+    set((state) => {
+      const nextOptions = { ...state.selectedServiceOptions };
+      for (const id of drop) delete nextOptions[id];
+      return { selectedServiceOptions: nextOptions, checkoutPriceSnapshot: null };
+    });
+  },
 
   setSelectedVehicleVin: (vin) => set({ selectedVehicleVin: vin }),
 
@@ -782,10 +869,31 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   },
 
   setSlotHold: (hold) =>
-    set({ holdId: hold?.holdId ?? null, holdExpiresAt: hold?.expiresAt ?? null }),
+    set({
+      holdId: hold?.holdId ?? null,
+      holdExpiresAt: hold?.expiresAt ?? null,
+      holdHardExpiresAt: hold ? (hold.hardExpiresAt ?? null) : null,
+      holdSpec: hold ? (hold.spec ?? null) : null,
+    }),
+
+  updateSlotHoldExpiry: (expiresAt, hardExpiresAt) =>
+    set((state) => ({
+      holdExpiresAt: expiresAt,
+      holdHardExpiresAt: hardExpiresAt ?? state.holdHardExpiresAt,
+    })),
 
   clearSlotHold: () =>
-    set({ holdId: null, holdExpiresAt: null, holdSessionId: null }),
+    set({
+      holdId: null,
+      holdExpiresAt: null,
+      holdHardExpiresAt: null,
+      holdSpec: null,
+      holdSessionId: null,
+    }),
+
+  setCheckoutPriceSnapshot: (snapshot) => set({ checkoutPriceSnapshot: snapshot }),
+
+  setCheckoutPriceChange: (notice) => set({ checkoutPriceChange: notice }),
 
   resetBookingFlow: () =>
     set({
@@ -815,6 +923,10 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       holdSessionId: null,
       holdId: null,
       holdExpiresAt: null,
+      holdHardExpiresAt: null,
+      holdSpec: null,
+      checkoutPriceSnapshot: null,
+      checkoutPriceChange: null,
       draftBooking: null,
     }),
 

@@ -75,7 +75,17 @@ export interface ReceiptPayload {
     mechanic_findings: string;
   };
   line_items: (
-    | { type: "service"; name: string; labor_hours: number | null; labor_cost: number | null }
+    | {
+        type: "service";
+        name: string;
+        labor_hours: number | null;
+        labor_cost: number | null;
+        /** The billed minutes and rate (server money statement) — minutes ×
+         *  rate reproduces labor_cost. Absent on older servers. */
+        labor_minutes?: number | null;
+        labor_rate?: number | null;
+        kind?: "labor" | "set_price";
+      }
     | {
         type: "part";
         name: string;
@@ -171,6 +181,39 @@ function fmtRating(n: number): string {
 
 function fmtLaborHours(hours: number): string {
   return `${hours} ${hours === 1 ? "HR" : "HRS"}`;
+}
+
+/** "28 MIN" / "1 HR 36 MIN" — billed minutes are exact, so "minutes @ rate"
+ *  multiplies out to the line amount (#335: "0.4 HRS @ $150/HR" read as $60
+ *  next to a $70 line). */
+function fmtLaborMinutes(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = Math.round(minutes - h * 60);
+  if (h === 0) return `${m} MIN`;
+  if (m === 0) return `${h} ${h === 1 ? "HR" : "HRS"}`;
+  return `${h} ${h === 1 ? "HR" : "HRS"} ${m} MIN`;
+}
+
+/** The labor caption for a receipt line: the line's own billed minutes and
+ *  rate when the server sends them, else the legacy hours × shop rate. */
+function laborCaption(
+  l: {
+    labor_hours: number | null;
+    labor_minutes?: number | null;
+    labor_rate?: number | null;
+    kind?: "labor" | "set_price";
+  },
+  shopRate: number | null | undefined,
+): string | null {
+  if (l.kind === "set_price") return "SET PRICE";
+  if (l.labor_minutes != null && l.labor_minutes > 0) {
+    const rate = l.labor_rate ?? shopRate;
+    return `${fmtLaborMinutes(l.labor_minutes)}${rate != null ? ` @ ${fmtUSD(rate)}/HR` : ""}`;
+  }
+  if (l.labor_hours != null) {
+    return `${fmtLaborHours(l.labor_hours)}${shopRate != null ? ` @ ${fmtUSD(shopRate)}/HR` : ""}`;
+  }
+  return null;
 }
 
 /**
@@ -512,13 +555,7 @@ export function ReceiptContent({ payload, bookingId, onLeaveReview, onViewJob }:
             <LineItem
               key={`svc-${i}`}
               name={formatServiceDisplayName(l.name)}
-              detail={
-                l.labor_hours != null
-                  ? `${fmtLaborHours(l.labor_hours)}${
-                      shop?.labor_rate != null ? ` @ ${fmtUSD(shop.labor_rate)}/HR` : ""
-                    }`
-                  : null
-              }
+              detail={laborCaption(l, shop?.labor_rate)}
               amount={fmtAmount(l.labor_cost)}
             />
           ))}

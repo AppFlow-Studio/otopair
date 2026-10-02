@@ -41,7 +41,7 @@ import Animated, {
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 
-import { ArrowRight, Bell, CalendarX, Car, Check, ChevronDown, ChevronRight, Clock, CreditCard, FileText, MessageCircle, Navigation, Phone, ReceiptText, User, Wrench, X } from "lucide-react-native";
+import { ArrowRight, Bell, Calendar as CalendarIcon, CalendarX, Car, Check, CheckCircle2, ChevronDown, ChevronRight, Clock, CreditCard, FileText, MessageCircle, Navigation, Phone, ReceiptText, User, Warehouse, Wrench, X } from "lucide-react-native";
 
 import { openMapsForAddress, openPhone } from "@/utils/linking";
 import { useQuery } from "convex/react";
@@ -56,6 +56,8 @@ import { isBookingActionAllowed } from "@/lib/connection/offlineBookingActions";
 import { OfflineActionsNotice } from "@/components/connection/OfflineActionsNotice";
 import { useToast } from "@/hooks/useToast";
 import { useMutationWithToast } from "@/hooks/useMutationWithToast";
+import { alreadyClosedCancelCopy } from "@/lib/error-ui";
+import { formatBookingError, readBookingError } from "@/convex/lib/bookingErrors";
 import { useBookingActions } from "@/hooks/useBookingActions";
 import { useShopTicketsForBooking } from "@/hooks/useShopTicketsFromConvex";
 import { buildCancelCopy, isLocalBookingId } from "@/constants/bookingActionPolicy";
@@ -63,7 +65,19 @@ import { buildBookingCalendarEvent, formatBookingReference } from "@/lib/booking
 import { useBookingStore } from "@/stores/useBookingStore";
 import type { Booking } from "./BookingCard";
 import { MessageShopSheet, type MessageShopSheetRef } from "./MessageShopSheet";
-import { RescheduleSheet, type RescheduleSheetRef } from "./RescheduleSheet";
+import {
+  RescheduleSheet,
+  type RescheduleConfirmOutcome,
+  type RescheduleSheetRef,
+} from "./RescheduleSheet";
+
+/** What the customer saw when they opened the picker — sent with the
+ *  reschedule so a booking that moved underneath is refused (bug #403). */
+type RescheduleExpected = {
+  status?: string;
+  scheduledDate?: string;
+  scheduledTime?: string;
+};
 import { ApprovalBanner } from "@/components/booking/ApprovalBanner";
 import { PaymentBreakdown } from "@/components/booking/PaymentBreakdown";
 import { ReceiptViewer } from "@/components/booking/ReceiptViewer";
@@ -72,6 +86,7 @@ import {
   type FileDisputeSheetRef,
 } from "@/components/booking/FileDisputeSheet";
 import { deriveDisclosedRange } from "@/lib/disclosedRange";
+import { titleCaseVehicleName as titleCase } from '@/lib/vehicleName';
 import { formatServiceDisplayNames } from "@/utils/serviceDisplayName";
 
 // ============================================================================
@@ -96,7 +111,8 @@ const STATUS_CONFIG: Record<BookingStatus, { label: string; bgColor: string; tex
   quotes_ready: { label: "Quotes Ready", bgColor: "#E3F0FF", textColor: "#2F6DCC" },
   pending_customer_acceptance: { label: "Action needed", bgColor: "#FFF6E5", textColor: "#C8972E" },
   confirmed: { label: "Confirmed", bgColor: "#e8f5e9", textColor: "#4CAF50" },
-  vehicle_at_shop: { label: "Checked In", bgColor: "#ECFEFF", textColor: "#0E7490" },
+  // #294 — customer-facing status flips to In Progress at check-in.
+  vehicle_at_shop: { label: "In Progress", bgColor: "#E0E7FF", textColor: "#4F46E5" },
   in_progress: { label: "In Progress", bgColor: "#E0E7FF", textColor: "#4F46E5" },
   completed: { label: "Completed", bgColor: "#f0fcf5", textColor: "#60d17e" },
   cancelled: { label: "Cancelled", bgColor: "#FEE2E2", textColor: "#DC2626" },
@@ -291,9 +307,7 @@ interface BookingDetailsSheetProps {
   onOpen?: () => void;
 }
 
-function titleCase(str: string): string {
-  return str.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
-}
+
 
 // ============================================================================
 // COMPONENT
@@ -347,9 +361,12 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
     // Set by open({ openChat: true }); consumed once the enter animation has
     // presented this Modal, so the chat Modal doesn't race it (see effect).
     const pendingOpenChatRef = useRef(false);
+    // Snapshot of status/date/time taken when the picker opened (bug #403).
+    const rescheduleExpectedRef = useRef<RescheduleExpected | null>(null);
 
     const handleRequestReschedule = useCallback(
-      (bookingId: string, date: string, time: string) => {
+      (bookingId: string, date: string, time: string, expected?: RescheduleExpected) => {
+        rescheduleExpectedRef.current = expected ?? null;
         rescheduleSheetRef.current?.open(bookingId, { date, time });
       },
       [],
@@ -451,31 +468,81 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
 
     // Customer reschedule → a request the shop confirms (booking moves to
     // pending_shop_acceptance). Local-only bookings keep the store path.
+    // Errors are routed by code below (picker stays open / Message the shop /
+    // close), so the hook shows only the success toast.
     const requestReschedule = useMutationWithToast(
       api.bookings.customerRequestReschedule,
       {
         success: "Reschedule requested — awaiting shop.",
-        error: (ctx) => ({
-          title: ctx.error.message || "Couldn't request a reschedule. Try again.",
-        }),
       },
     );
+    const toast = useToast();
 
     const handleConfirmReschedule = useCallback(
-      (bookingId: string, newDate: string, newTime: string) => {
+      async (
+        bookingId: string,
+        newDate: string,
+        newTime: string,
+        newTime24: string,
+      ): Promise<RescheduleConfirmOutcome> => {
         if (isLocalBookingId(bookingId)) {
           useBookingStore.getState().rescheduleBooking(bookingId, newDate, newTime);
-        } else {
-          void requestReschedule({
+          close();
+          return;
+        }
+        const expected = rescheduleExpectedRef.current;
+        try {
+          // Awaited: the picker (and this sheet) close only once the shop
+          // has the request, so a refusal can't masquerade as success.
+          await requestReschedule({
             bookingId: bookingId as Id<"bookings">,
             newScheduledDate: newDate,
-            newScheduledTime: newTime,
+            // The server stores "HH:MM"; the old "9:00 AM" reached the DB
+            // verbatim (bug #403). Server also normalizes, but send it right.
+            newScheduledTime: newTime24,
+            expectedStatus: expected?.status || undefined,
+            expectedScheduledDate: expected?.scheduledDate || undefined,
+            expectedScheduledTime: expected?.scheduledTime || undefined,
           });
+        } catch (err) {
+          const data = readBookingError(err);
+          const message = formatBookingError(
+            err,
+            "Couldn't request a reschedule. Try again.",
+          );
+          switch (data?.code) {
+            case "SLOT_UNAVAILABLE":
+            case "OUTSIDE_SHOP_HOURS":
+            case "INVALID_TIME":
+              // The time was refused, not the reschedule — pick another.
+              return { error: message };
+            case "JOB_ALREADY_STARTED":
+            case "VEHICLE_CHECKED_IN":
+            case "RESCHEDULE_LIMIT_REACHED":
+              // Picking another time won't help; the shop can.
+              rescheduleSheetRef.current?.close();
+              Alert.alert("Can't reschedule", message, [
+                { text: "Not now", style: "cancel" },
+                { text: "Message the shop", onPress: () => handleOpenChat() },
+              ]);
+              return;
+            case "BOOKING_STATE_CHANGED":
+            case "BOOKING_ALREADY_CANCELLED":
+            case "BOOKING_NOT_FOUND":
+              // The view was stale: close it; the reactive list shows the
+              // booking as it is now.
+              rescheduleSheetRef.current?.close();
+              toast.info(message);
+              close();
+              return;
+            default:
+              return { error: message };
+          }
         }
         // Close the detail sheet so the updated booking is immediately visible in the list.
         close();
       },
-      [close, requestReschedule],
+      [close, handleOpenChat, requestReschedule, toast],
     );
 
     useImperativeHandle(ref, () => ({ open, close }));
@@ -542,6 +609,17 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
     const buildDragGesture = useCallback(
       () =>
         Gesture.Pan()
+          // Only claim the touch once it is clearly a vertical DRAG. Without
+          // this the pan activates on the first pixel of movement and wins the
+          // race against the TouchableOpacitys underneath, so a tap that
+          // wanders a hair gets swallowed and the control "does nothing".
+          //
+          // It hits small targets hardest: the 19px phone and chat icons in
+          // ShopRow lose far more often than the wide footer buttons, which is
+          // exactly the reported asymmetry — Contact works, the icon beside the
+          // mechanic is dead (#325). Both were always wired to the same
+          // openPhone(shopPhone).
+          .activeOffsetY([-10, 10])
           .onBegin(() => {
             startHeight.value = sheetHeight.value;
           })
@@ -741,15 +819,71 @@ BookingDetailsSheet.displayName = "BookingDetailsSheet";
 // SUB-COMPONENTS
 // ============================================================================
 
-function SheetHeader({ onClose }: { onClose: () => void }) {
+/**
+ * Sheet header.
+ *
+ * The close button sits on its own line above the title rather than beside it.
+ * Sharing a line meant the title, the date and the status pill competed for
+ * the same row, and "8:50 AM" was the thing that lost — wrapping onto a second
+ * line with "AM" alone on it.
+ */
+function SheetHeader({
+  onClose,
+  booking,
+  statusConfig,
+}: {
+  onClose: () => void;
+  booking: Booking;
+  statusConfig: { label: string; bgColor: string; textColor: string };
+}) {
+  const when =
+    booking.date && booking.time
+      ? `${booking.date} \u00b7 ${booking.time}`
+      : booking.date || booking.time || "Time TBD";
+  const checkedIn = booking.status === "vehicle_at_shop";
+
   return (
-    <View style={styles.headerRow}>
-      <Text size="2xl" weight="bold" color="#1A1A1A">
-        Booking Details
-      </Text>
-      <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-        <X size={22} color="#8E8E93" />
-      </TouchableOpacity>
+    <View>
+      <View style={styles.closeRow}>
+        <TouchableOpacity
+          onPress={onClose}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          accessibilityRole="button"
+          accessibilityLabel="Close"
+        >
+          <X size={24} color="#9CA3AF" />
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.headerRow}>
+        <View style={styles.headerIcon}>
+          <CalendarIcon size={22} color="#2563EB" strokeWidth={2.2} />
+        </View>
+        <View style={styles.headerText}>
+          <Text size="2xl" weight="bold" color="#1A1A1A">
+            Booking Details
+          </Text>
+          {/* One line, always. The date is long and the time is short; letting
+              this wrap put "AM" on a line of its own. */}
+          <Text
+            size="md"
+            weight="regular"
+            color="#6B7280"
+            numberOfLines={1}
+            style={styles.headerSubtitle}
+          >
+            {when}
+          </Text>
+        </View>
+        <View style={[styles.statusPill, { backgroundColor: statusConfig.bgColor }]}>
+          {checkedIn ? (
+            <CheckCircle2 size={15} color={statusConfig.textColor} strokeWidth={2.4} />
+          ) : null}
+          <Text weight="semiBold" size="sm" color={statusConfig.textColor}>
+            {statusConfig.label}
+          </Text>
+        </View>
+      </View>
     </View>
   );
 }
@@ -807,66 +941,43 @@ function MidContent({
     <View style={styles.midContainer}>
       {/* Top block — pushed to top */}
       <View>
-        <SheetHeader onClose={onClose} />
+        <SheetHeader onClose={onClose} booking={booking} statusConfig={statusConfig} />
 
-        <View style={styles.midStatusBlock}>
-          <Text size="xl" weight="semiBold" color="#1A1A1A" style={styles.midStatusLeft}>
-            {booking.date && booking.time
-              ? `${booking.date} · ${booking.time}`
-              : booking.date || booking.time || "Time TBD"}
-          </Text>
-          <View style={[styles.statusPill, { backgroundColor: statusConfig.bgColor }]}>
-            <Text weight="semiBold" size="sm" color={statusConfig.textColor}>
-              {statusConfig.label}
-            </Text>
-          </View>
-        </View>
+        <View style={styles.hairline} />
 
-        <MechanicCard
+        <ShopRow
           booking={booking}
           mechanicRating={mechanicRating}
           onMessage={onOpenChat}
           messageDisabled={!messageAllowed}
+          shopPhone={shopPhone}
         />
 
-        {/* Details card — Service + Vehicle at a glance */}
-        <View style={styles.detailsCard}>
-          <View style={styles.detailsRow}>
-            <View style={styles.detailsIconBox}>
-              <Wrench size={18} color="#5299FE" />
-            </View>
-            <View style={styles.detailsText}>
-              <Text size="xs" weight="medium" color="#8E8E93">
-                SERVICE
-              </Text>
-              <Text size="md" weight="semiBold" color="#1A1A1A">
-                {(booking.services ?? []).join(" · ") || "Service"}
-              </Text>
-            </View>
-          </View>
+        <View style={styles.hairline} />
 
-          <View style={styles.detailsDivider} />
-
-          <View style={styles.detailsRow}>
-            <View style={styles.detailsIconBox}>
-              <Car size={18} color="#5299FE" />
-            </View>
-            <View style={styles.detailsText}>
-              <Text size="xs" weight="medium" color="#8E8E93">
-                VEHICLE
-              </Text>
-              <Text size="md" weight="semiBold" color="#1A1A1A" numberOfLines={1}>
-                {titleCase(booking.carModel)}
-                {booking.carYear ? ` · ${booking.carYear}` : ""}
-              </Text>
-            </View>
-          </View>
+        {/* Service and Vehicle. Previously a grey grouped card; the redesign
+            wants the sheet to read as one surface divided by rules, not as a
+            stack of tinted boxes. */}
+        <View style={styles.infoGroup}>
+          <InfoRow
+            Icon={Wrench}
+            label="SERVICE"
+            value={(booking.services ?? []).join(" \u00b7 ") || "Service"}
+          />
+          <InfoRow
+            Icon={Car}
+            label="VEHICLE"
+            value={`${titleCase(booking.carModel)}${
+              booking.carYear ? ` \u00b7 ${booking.carYear}` : ""
+            }`}
+          />
         </View>
+
+        <View style={styles.hairline} />
       </View>
 
       {/* Bottom block — pushed to bottom */}
       <View style={styles.midBottomBlock}>
-        {/* Directions + Contact — mirrors the Order Confirmation card */}
         <View style={styles.midActionRow}>
           <TouchableOpacity
             style={[styles.midActionButton, directionsDisabled && styles.midActionButtonDisabled]}
@@ -874,15 +985,8 @@ function MidContent({
             disabled={directionsDisabled}
             activeOpacity={0.7}
           >
-            <Navigation
-              size={16}
-              color={directionsDisabled ? "#9CA3AF" : "#1A1A1A"}
-            />
-            <Text
-              size="sm"
-              weight="medium"
-              color={directionsDisabled ? "#9CA3AF" : "#1A1A1A"}
-            >
+            <Navigation size={18} color={directionsDisabled ? "#9CA3AF" : "#1A1A1A"} />
+            <Text size="md" weight="semiBold" color={directionsDisabled ? "#9CA3AF" : "#1A1A1A"}>
               Directions
             </Text>
           </TouchableOpacity>
@@ -893,15 +997,8 @@ function MidContent({
             disabled={contactDisabled}
             activeOpacity={0.7}
           >
-            <Phone
-              size={16}
-              color={contactDisabled ? "#9CA3AF" : "#1A1A1A"}
-            />
-            <Text
-              size="sm"
-              weight="medium"
-              color={contactDisabled ? "#9CA3AF" : "#1A1A1A"}
-            >
+            <Phone size={18} color={contactDisabled ? "#9CA3AF" : "#1A1A1A"} />
+            <Text size="md" weight="semiBold" color={contactDisabled ? "#9CA3AF" : "#1A1A1A"}>
               Contact
             </Text>
           </TouchableOpacity>
@@ -909,88 +1006,129 @@ function MidContent({
 
         {messageAllowed ? (
           <TouchableOpacity style={styles.primaryButton} onPress={handlePrimary} activeOpacity={0.85}>
-            <Text size="md" weight="semiBold" color="#FFFFFF">
+            {/* The unread count rides the chat icon rather than trailing the
+                label as a grey pill — it belongs to the thing being opened. */}
+            <View>
+              <MessageCircle size={22} color="#FFFFFF" strokeWidth={2.2} />
+              {unreadMessageCount > 0 ? (
+                <View style={styles.primaryButtonBadge}>
+                  <Text size="xs" weight="bold" color="#2563EB">
+                    {unreadMessageCount > 9 ? "9+" : unreadMessageCount}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+            <Text size="lg" weight="semiBold" color="#FFFFFF" style={styles.primaryButtonLabel}>
               {primaryActionLabel}
             </Text>
-            {unreadMessageCount > 0 ? (
-              <View style={styles.primaryButtonBadge}>
-                <Text size="xs" weight="bold" color="#5299FE">
-                  {unreadMessageCount > 99 ? "99+" : unreadMessageCount}
-                </Text>
-              </View>
-            ) : null}
+            <ChevronRight size={22} color="#FFFFFF" strokeWidth={2.2} />
           </TouchableOpacity>
         ) : (
           <OfflineActionsNotice style={styles.offlineNoticeMid} />
         )}
 
-        <Text size="xs" weight="regular" color="#8E8E93" center style={styles.midHint}>
-          Swipe up for full details
+        {/* A deliberate element, not a caption: rules either side and real
+            padding, so it reads as the boundary of the collapsed sheet. */}
+        <View style={styles.midHintRow}>
+          <View style={styles.midHintRule} />
+          <Text size="sm" weight="regular" color="#6B7280">
+            Swipe up for full details
+          </Text>
+          <View style={styles.midHintRule} />
+        </View>
+      </View>
+    </View>
+  );
+}
+
+/** One labelled row: 48px icon circle, overline, value. */
+function InfoRow({
+  Icon,
+  label,
+  value,
+}: {
+  Icon: typeof Wrench;
+  label: string;
+  value: string;
+}) {
+  return (
+    <View style={styles.infoRow}>
+      <View style={styles.infoIcon}>
+        <Icon size={20} color="#374151" strokeWidth={2} />
+      </View>
+      <View style={styles.infoText}>
+        <Text size="xs" weight="semiBold" color="#6B7280" style={styles.infoLabel}>
+          {label}
+        </Text>
+        <Text size="lg" weight="semiBold" color="#1A1A1A" numberOfLines={2}>
+          {value}
         </Text>
       </View>
     </View>
   );
 }
 
-function MechanicCard({
+/**
+ * Shop row — garage mark, shop name, mechanic, and two round icon buttons.
+ *
+ * Replaces MechanicCard's tinted box and its small inline avatar. The avatar
+ * was a 32px crop of a face that is not the shop, sitting where the mock puts
+ * the shop's own mark.
+ */
+function ShopRow({
   booking,
   mechanicRating,
   onMessage,
   messageDisabled,
+  shopPhone,
 }: {
   booking: Booking;
   mechanicRating?: number;
   onMessage: () => void;
-  /** Greys out the chat icon while offline (same gate as Message Mechanic). */
   messageDisabled?: boolean;
+  shopPhone?: string;
 }) {
+  void mechanicRating;
   const handleCall = useCallback(() => {
-    // TODO: call shop when phone number is exposed on Booking
-    console.log("TODO: call shop", booking.id); // eslint-disable-line no-console
-  }, [booking.id]);
+    if (shopPhone) openPhone(shopPhone);
+  }, [shopPhone]);
 
   return (
-    <View style={styles.mechanicCard}>
-      <BlurView intensity={40} tint="light" style={StyleSheet.absoluteFill} />
-      <LinearGradient
-        colors={["rgba(255,255,255,0.7)", "rgba(255,255,255,0.55)"]}
-        style={StyleSheet.absoluteFill}
-      />
-      <View style={styles.mechanicCardInner}>
-        <View style={styles.mechanicAvatar}>
-          {booking.mechanicImage ? (
-            <Image source={{ uri: booking.mechanicImage }} style={styles.mechanicAvatarImage} />
-          ) : (
-            <User size={22} color="#9CA3AF" />
-          )}
-        </View>
-        <View style={styles.mechanicBody}>
-          <Text size="md" weight="semiBold" color="#1A1A1A">
-            {booking.shopName}
-          </Text>
-          {/* Server falls back to shopName for `mechanicName` when no
-              mechanic is assigned (e.g. accepted tire quotes). Only render
-              the second line when it's actually a separate person. */}
-          {booking.mechanicName && booking.mechanicName !== booking.shopName ? (
-            <Text size="xs" weight="regular" color="#8E8E93">
-              {booking.mechanicName}
-              {mechanicRating != null ? ` · ⭐ ${mechanicRating.toFixed(1)}` : ""}
-            </Text>
-          ) : mechanicRating != null ? (
-            <Text size="xs" weight="regular" color="#8E8E93">
-              ⭐ {mechanicRating.toFixed(1)}
-            </Text>
-          ) : null}
-        </View>
-        <View style={styles.mechanicActions}>
-          <IconCircleButton onPress={handleCall} icon={<Phone size={16} color="#1A1A1A" />} />
-          <IconCircleButton
-            onPress={onMessage}
-            disabled={messageDisabled}
-            icon={<MessageCircle size={16} color="#1A1A1A" />}
-          />
-        </View>
+    <View style={styles.shopRow}>
+      <View style={styles.shopIcon}>
+        <Warehouse size={24} color="#374151" strokeWidth={1.9} />
       </View>
+      <View style={styles.shopText}>
+        {/* Two lines allowed: real shop names ("Auto Masters of Staten
+            Island corp") are longer than the mock's, and truncating the shop
+            is worse than a second line. */}
+        <Text size="lg" weight="bold" color="#1A1A1A" numberOfLines={2}>
+          {booking.shopName}
+        </Text>
+        {booking.mechanicName && booking.mechanicName !== booking.shopName ? (
+          <Text size="md" weight="regular" color="#6B7280" numberOfLines={1}>
+            {booking.mechanicName}
+          </Text>
+        ) : null}
+      </View>
+      <TouchableOpacity
+        style={[styles.shopIconButton, !shopPhone && styles.shopIconButtonDisabled]}
+        onPress={handleCall}
+        disabled={!shopPhone}
+        accessibilityRole="button"
+        accessibilityLabel={`Call ${booking.shopName}`}
+      >
+        <Phone size={19} color={shopPhone ? "#1A1A1A" : "#9CA3AF"} strokeWidth={2} />
+      </TouchableOpacity>
+      <TouchableOpacity
+        style={[styles.shopIconButton, messageDisabled && styles.shopIconButtonDisabled]}
+        onPress={onMessage}
+        disabled={messageDisabled}
+        accessibilityRole="button"
+        accessibilityLabel={`Message ${booking.shopName}`}
+      >
+        <MessageCircle size={19} color={messageDisabled ? "#9CA3AF" : "#1A1A1A"} strokeWidth={2} />
+      </TouchableOpacity>
     </View>
   );
 }
@@ -1029,7 +1167,12 @@ interface FullContentProps {
   activityLog?: ActivityEvent[];
   bookingDetail?: any;
   onClose: () => void;
-  onRequestReschedule: (bookingId: string, date: string, time: string) => void;
+  onRequestReschedule: (
+    bookingId: string,
+    date: string,
+    time: string,
+    expected?: RescheduleExpected,
+  ) => void;
   onOpenChat: () => void;
   bottomPadding: number;
 }
@@ -1056,20 +1199,32 @@ function FullContent({
   // Phase policy — same source of truth as BookingCard, so the sheet and the
   // card allow exactly the same actions and disclose the same fee.
   const actions = useBookingActions(booking.id, booking.status);
+  // Why Reschedule is off, in the mutation's own words (bug #403). Read
+  // directly because useBookingActions doesn't carry it; Convex dedupes the
+  // identical subscription.
+  const serverActions = useQuery(
+    api.bookings.getCustomerBookingActions,
+    isLocalBookingId(booking.id) ? "skip" : { bookingId: booking.id as Id<"bookings"> },
+  );
+  const rescheduleBlockedReason = serverActions?.rescheduleBlockedReason ?? null;
   const cancelBooking = useMutationWithToast(api.bookings.cancelBooking, {
-    success: "Booking cancelled.",
+    success: ({ result }) => {
+      // Someone else ended it first (bug #394): say who, never "Booking
+      // cancelled" or a fee for a cancel this tap didn't make.
+      const closed = alreadyClosedCancelCopy(result);
+      if (closed) return { title: closed, variant: "info" };
+      return { title: "Booking cancelled." };
+    },
     successIcon: CalendarX,
-    error: (ctx) => ({
-      title: ctx.error.message || "Couldn't cancel this booking. Try again.",
-    }),
+    error: (ctx) => ({ title: ctx.message }),
+    errorFallback: "Couldn't cancel this booking. Try again.",
   });
   const requestPickup = useMutationWithToast(
     api.bookings.requestCancellationAtShop,
     {
       success: "Pickup request sent. The shop will confirm.",
-      error: (ctx) => ({
-        title: ctx.error.message || "Couldn't send your request. Try again.",
-      }),
+      error: (ctx) => ({ title: ctx.message }),
+      errorFallback: "Couldn't send your request. Try again.",
     },
   );
   // Offline gate: Reschedule/Cancel are the same backend writes the booking
@@ -1088,7 +1243,9 @@ function FullContent({
           text: copy.confirmLabel,
           onPress: () => {
             if (!isLocalBookingId(booking.id)) {
-              void requestPickup({ bookingId: booking.id as Id<"bookings"> });
+              // Failure is toasted by the hook; the catch only keeps the
+              // dropped promise from becoming an unhandled rejection.
+              requestPickup({ bookingId: booking.id as Id<"bookings"> }).catch(() => {});
             }
             onClose();
           },
@@ -1098,31 +1255,45 @@ function FullContent({
     }
 
     // Free or late-fee cancel. The fee (when any) is disclosed in the body +
-    // confirm label so it's unmissable before we charge.
-    Alert.alert(copy.title, copy.body, [
-      { text: "Keep booking", style: "cancel" },
-      {
-        text: copy.confirmLabel,
-        style: "destructive",
-        onPress: () => {
-          if (isLocalBookingId(booking.id)) {
-            useBookingStore.getState().cancelBooking(booking.id);
-            toast.success("Booking cancelled.", undefined, { icon: CalendarX });
-          } else {
-            void cancelBooking({
+    // confirm label so it's unmissable before we charge. `feeCents` is the
+    // amount disclosed; FEE_CHANGED re-opens this confirm at the server's
+    // new fee instead of charging more than was shown (bug #394).
+    const confirmCancel = (feeCents: number) => {
+      const feeCopy = buildCancelCopy({ ...actions, feeCentsIfCancelledNow: feeCents });
+      Alert.alert(feeCopy.title, feeCopy.body, [
+        { text: "Keep booking", style: "cancel" },
+        {
+          text: feeCopy.confirmLabel,
+          style: "destructive",
+          onPress: () => {
+            if (isLocalBookingId(booking.id)) {
+              useBookingStore.getState().cancelBooking(booking.id);
+              toast.success("Booking cancelled.", undefined, { icon: CalendarX });
+              onClose();
+              return;
+            }
+            onClose();
+            cancelBooking({
               bookingId: booking.id as Id<"bookings">,
-              feeAcknowledgedCents: actions.feeCentsIfCancelledNow,
+              feeAcknowledgedCents: feeCents,
+            }).catch((err: unknown) => {
+              // The hook already toasted the message.
+              const data = readBookingError(err);
+              if (data?.code === "FEE_CHANGED" && typeof data.currentCents === "number") {
+                confirmCancel(data.currentCents);
+              }
             });
-          }
-          onClose();
+          },
         },
-      },
-    ]);
+      ]);
+    };
+    confirmCancel(actions.feeCentsIfCancelledNow);
   }, [actions, booking.id, cancelBooking, requestPickup, onClose, toast]);
 
   const handleReschedule = useCallback(() => {
-    // Over the free limit / inside cutoff / car at shop → contact the shop.
-    if (actions.rescheduleKind !== "free") {
+    // Over the free limit / inside cutoff / car at shop / work started →
+    // contact the shop. The blocked reason is the server's own predicate.
+    if (actions.rescheduleKind !== "free" || rescheduleBlockedReason) {
       onOpenChat();
       return;
     }
@@ -1131,13 +1302,20 @@ function FullContent({
     const local = useBookingStore.getState().getBookingById(booking.id);
     const date = bookingDetail?.scheduledDate ?? local?.scheduledDate ?? "";
     const time = bookingDetail?.scheduledTime ?? local?.scheduledTime ?? "";
-    onRequestReschedule(booking.id, date, time);
+    // What the customer is looking at right now — the server refuses the
+    // move if the booking changed before they confirm (bug #403).
+    onRequestReschedule(booking.id, date, time, {
+      status: bookingDetail?.status ?? undefined,
+      scheduledDate: bookingDetail?.scheduledDate ?? undefined,
+      scheduledTime: bookingDetail?.scheduledTime ?? undefined,
+    });
   }, [
     actions.rescheduleKind,
     booking.id,
     bookingDetail,
     onOpenChat,
     onRequestReschedule,
+    rescheduleBlockedReason,
   ]);
 
   const handleMessageShop = useCallback(() => {
@@ -1199,10 +1377,16 @@ function FullContent({
   ]);
 
   const primaryService = booking.services[0] ?? "Service";
+  const statusConfig = STATUS_CONFIG[booking.status] ?? STATUS_CONFIG.pending;
 
   return (
     <View style={styles.fullContainer}>
-      <SheetHeader onClose={onClose} />
+      {/* The header carries no horizontal padding of its own — in the mid
+          detent midContainer supplies it, and here fullScroll does for
+          everything below. This wrapper is the header's share. */}
+      <View style={styles.fullHeader}>
+        <SheetHeader onClose={onClose} booking={booking} statusConfig={statusConfig} />
+      </View>
       <ScrollView
         contentContainerStyle={[styles.fullScroll, { paddingBottom: bottomPadding }]}
         showsVerticalScrollIndicator={false}
@@ -1416,6 +1600,30 @@ function FullContent({
                 </>
               );
             }
+            // The customer agreed a price. That IS the contract, and it is what
+            // this section should show — in range or not.
+            //
+            // The only branch that collapsed the band was `isMechanicPriceInRange`,
+            // which by definition never fires for the out-of-range case — and
+            // out-of-range is the ONLY kind that asks the customer to approve
+            // anything. So the screen that records "you approved $198.21" in
+            // Activity had no way to say so in Payment. It fell past every
+            // branch to the placeholder and stayed there, which is why the
+            // tester still saw it two hours later: nothing was going to change
+            // it.
+            const approvedTotalCents = bookingDetail?.approvedTotalCents ?? null;
+            if (approvedTotalCents != null) {
+              return (
+                <View style={styles.paymentRow}>
+                  <Text size="md" weight="regular" color="#1A1A1A">
+                    Agreed total
+                  </Text>
+                  <Text size="md" weight="bold" color="#1A1A1A">
+                    {formatCents(approvedTotalCents)}
+                  </Text>
+                </View>
+              );
+            }
             if (isMechanicPriceInRange && mechanicSetPriceCents != null) {
               // Mechanic completed pre-job and submitted a price that
               // landed inside the disclosed range — that becomes the
@@ -1499,7 +1707,10 @@ function FullContent({
         </View>
 
         {/* Dispute sheet — rendered inline so it overlays this view. Opens
-            from PaymentBreakdown's "Something wrong with this charge?" CTA. */}
+            from PaymentBreakdown's "Something not right?" CTA. That CTA only
+            renders when `capturedAtMs` is non-null, and this query returned no
+            payment fields at all until #336 — so the whole refund path was
+            unreachable in the app, which is what #374 describes. */}
         <FileDisputeSheet ref={disputeSheetRef} />
 
         {/* SECONDARY ACTIONS — Reschedule/Message shop are governed by the
@@ -1519,15 +1730,25 @@ function FullContent({
               </Text>
             </TouchableOpacity>
           ) : actions.canReschedule ? (
-            <TouchableOpacity
-              style={styles.rescheduleButton}
-              onPress={handleReschedule}
-              activeOpacity={0.85}
-            >
-              <Text size="md" weight="semiBold" color="#FFFFFF">
-                {actions.rescheduleKind === "free" ? "Reschedule" : "Contact shop"}
-              </Text>
-            </TouchableOpacity>
+            <>
+              {rescheduleBlockedReason ? (
+                // Why the time can't be changed here (bug #403).
+                <Text size="sm" color="#6B7280" style={styles.rescheduleBlockedText}>
+                  {rescheduleBlockedReason.message}
+                </Text>
+              ) : null}
+              <TouchableOpacity
+                style={styles.rescheduleButton}
+                onPress={handleReschedule}
+                activeOpacity={0.85}
+              >
+                <Text size="md" weight="semiBold" color="#FFFFFF">
+                  {actions.rescheduleKind === "free" && !rescheduleBlockedReason
+                    ? "Reschedule"
+                    : "Contact shop"}
+                </Text>
+              </TouchableOpacity>
+            </>
           ) : null}
           <TouchableOpacity
             style={styles.outlineButton}
@@ -1647,7 +1868,7 @@ function statusFriendlyLabel(status: string | null | undefined): string {
     case "pending_quote": return "Awaiting quote";
     case "quotes_ready": return "Quotes ready";
     case "confirmed": return "Confirmed";
-    case "vehicle_at_shop": return "Vehicle at shop";
+    case "vehicle_at_shop": return "In progress"; // #294
     case "in_progress": return "In progress";
     case "completed": return "Completed";
     case "cancelled": return "Cancelled";
@@ -2206,8 +2427,11 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   statusPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
     paddingHorizontal: 12,
-    paddingVertical: 4,
+    paddingVertical: 7,
     borderRadius: BorderRadius.full,
   },
 
@@ -2221,13 +2445,103 @@ const styles = StyleSheet.create({
   },
 
   // Shared header
+  closeRow: {
+    alignItems: 'flex-end',
+    paddingTop: 4,
+    paddingBottom: 4,
+  },
+  headerIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#EFF6FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerText: {
+    flex: 1,
+    gap: 2,
+  },
+  headerSubtitle: {
+    marginTop: 2,
+  },
+  hairline: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: '#E2E8F0',
+    marginVertical: 16,
+  },
+  shopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  shopIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#F8FAFC',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  shopText: {
+    flex: 1,
+    gap: 2,
+  },
+  shopIconButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#F8FAFC',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  shopIconButtonDisabled: {
+    opacity: 0.5,
+  },
+  infoGroup: {
+    gap: 20,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  infoIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#F8FAFC',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  infoText: {
+    flex: 1,
+    gap: 2,
+  },
+  infoLabel: {
+    letterSpacing: 0.8,
+  },
+  primaryButtonLabel: {
+    flex: 1,
+    textAlign: 'center',
+  },
+  midHintRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 20,
+  },
+  midHintRule: {
+    flex: 1,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: '#E2E8F0',
+  },
   headerRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 8,
+    gap: 14,
+    paddingTop: 2,
+    paddingBottom: 4,
   },
 
   // Mid content — non-scrolling; fills the layer so the top/bottom blocks
@@ -2252,11 +2566,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
-    paddingVertical: 12,
-    borderRadius: 12,
+    gap: 10,
+    height: 56,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderColor: "#E2E8F0",
     backgroundColor: "#FFFFFF",
   },
   midActionButtonDisabled: {
@@ -2367,21 +2681,25 @@ const styles = StyleSheet.create({
 
   // Primary button + hint
   primaryButton: {
-    marginTop: 24,
-    height: 52,
+    marginTop: 14,
+    height: 56,
     borderRadius: 14,
-    backgroundColor: "#5299FE",
+    paddingHorizontal: 18,
+    backgroundColor: "#2563EB",
     flexDirection: "row",
-    gap: 8,
+    gap: 10,
     alignItems: "center",
-    justifyContent: "center",
   },
   // White count pill on the blue Message Mechanic button (unread shop messages).
+  // Rides the chat icon rather than trailing the label.
   primaryButtonBadge: {
-    minWidth: 22,
-    height: 22,
-    borderRadius: 11,
-    paddingHorizontal: 6,
+    position: "absolute",
+    top: -7,
+    right: -10,
+    minWidth: 19,
+    height: 19,
+    borderRadius: 10,
+    paddingHorizontal: 5,
     backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
@@ -2393,6 +2711,9 @@ const styles = StyleSheet.create({
   // Full content
   fullContainer: {
     flex: 1,
+  },
+  fullHeader: {
+    paddingHorizontal: 20,
   },
   fullScroll: {
     paddingHorizontal: 20,
@@ -2552,6 +2873,9 @@ const styles = StyleSheet.create({
   secondaryActions: {
     marginTop: 32,
     gap: 12,
+  },
+  rescheduleBlockedText: {
+    textAlign: "center",
   },
   outlineButton: {
     height: 52,

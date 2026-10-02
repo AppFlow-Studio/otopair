@@ -83,6 +83,12 @@ import { useMechanicsFromConvex } from "@/hooks/useMechanicsFromConvex";
 import { useDistanceUnit } from "@/hooks/useDistanceUnit";
 import { useServicesFromConvex } from "@/hooks/useServicesFromConvex";
 import { useShopsFromConvex } from "@/hooks/useShopsFromConvex";
+import { useToast } from "@/hooks/useToast";
+import {
+  droppedServicesToast,
+  serviceNamesFor,
+  servicesShopDoesntOffer,
+} from "@/lib/shopServiceCoverage";
 import type { BookServicePayload } from "@/services/ai/types";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
@@ -255,6 +261,7 @@ export function BookServiceComponent({
   disabled = false,
 }: BookServiceComponentProps) {
   const router = useRouter();
+  const toast = useToast();
 
   // Hydrate mechanic + shop + services stores in the background (these
   // queries are also used by other surfaces, so they're already warm if the
@@ -610,6 +617,29 @@ export function BookServiceComponent({
       return;
     }
 
+    // The chosen mechanic's shop may not offer every picked service (bug
+    // #404) — Oto suggests services before a shop is chosen, and the server
+    // now refuses them at checkout. Drop those here and name them; if none
+    // are left, stay on the card so the customer can pick another shop. A
+    // shop that isn't hydrated yet is left to the Review & Pay check.
+    const handoffShop = selectedShopId
+      ? useShopStore.getState().shops[selectedShopId]
+      : undefined;
+    const unoffered = servicesShopDoesntOffer(handoffShop, convexIdsToToggle) ?? [];
+    let idsToBook = convexIdsToToggle;
+    if (unoffered.length > 0) {
+      const copy = droppedServicesToast(
+        handoffShop?.name,
+        serviceNamesFor(unoffered, availableConvexServices),
+      );
+      idsToBook = convexIdsToToggle.filter((id) => !unoffered.includes(id));
+      if (idsToBook.length === 0) {
+        setBookHandoffError(`${copy.title}. Pick another shop to book it.`);
+        return;
+      }
+      toast.warning(copy.title, copy.body);
+    }
+
     setBookHandoffError(null);
     setIsSubmitting(true);
 
@@ -618,7 +648,7 @@ export function BookServiceComponent({
 
     // 1) Clear + re-toggle services into the booking-store's service IDs.
     clearSelectedServices();
-    convexIdsToToggle.forEach((id) => toggleServiceSelection(id));
+    idsToBook.forEach((id) => toggleServiceSelection(id));
 
     // 2) Select mechanic.
     selectMechanic(selectedMechanicId);
@@ -658,6 +688,8 @@ export function BookServiceComponent({
     selectedSlot,
     selectedServiceOptions,
     availableConvexServices,
+    selectedShopId,
+    toast,
     clearSelectedServices,
     toggleServiceSelection,
     selectMechanic,

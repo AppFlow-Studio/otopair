@@ -3,7 +3,10 @@
  *
  * PURPOSE: Modal reschedule picker. User picks a new date + time via the
  *          native datetime picker; onConfirm fires with formatted strings
- *          that match useBookingStore's scheduledDate / scheduledTime shape.
+ *          that match useBookingStore's scheduledDate / scheduledTime shape,
+ *          plus the 24h "HH:MM" the server stores. The picker stays open
+ *          (with a spinner) until onConfirm settles, so a refused time can
+ *          be re-picked instead of the sheet vanishing on a failure (#403).
  *
  * USED IN: components/bookings/BookingDetailsSheet.tsx (FullContent)
  */
@@ -12,7 +15,15 @@ import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/dat
 import { BlurView } from "expo-blur";
 import { X } from "lucide-react-native";
 import React, { forwardRef, useCallback, useImperativeHandle, useState } from "react";
-import { Modal, Platform, Pressable, StyleSheet, TouchableOpacity, View } from "react-native";
+import {
+  ActivityIndicator,
+  Modal,
+  Platform,
+  Pressable,
+  StyleSheet,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
 import { Text } from "@/components/shared-ui";
 
@@ -25,9 +36,25 @@ export interface RescheduleSheetRef {
   close: () => void;
 }
 
+/**
+ * What onConfirm may resolve to. `{ error }` keeps the picker open with that
+ * sentence under it (the time was refused — pick another); anything else
+ * closes the picker.
+ */
+export type RescheduleConfirmOutcome = { error: string } | void | undefined;
+
 interface RescheduleSheetProps {
-  /** Called when the user confirms a new date/time. date = YYYY-MM-DD, time = "9:00 AM". */
-  onConfirm: (bookingId: string, date: string, time: string) => void;
+  /**
+   * Called when the user confirms a new date/time. date = YYYY-MM-DD,
+   * time = "9:00 AM" (local-store shape), time24 = "HH:MM" (server shape).
+   * May return a promise; the picker waits on it.
+   */
+  onConfirm: (
+    bookingId: string,
+    date: string,
+    time: string,
+    time24: string,
+  ) => RescheduleConfirmOutcome | Promise<RescheduleConfirmOutcome>;
 }
 
 // ============================================================================
@@ -50,6 +77,12 @@ function formatTime(d: Date): string {
   return `${h}:${m} ${ampm}`;
 }
 
+/** 24h "HH:MM" — the only time shape the server stores (bug #403: the
+ *  picker used to send "9:00 AM", which reached the DB verbatim). */
+function formatTime24(d: Date): string {
+  return `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 function parseInitial(date?: string, time?: string): Date {
   const d = new Date();
   d.setSeconds(0, 0);
@@ -61,6 +94,10 @@ function parseInitial(date?: string, time?: string): Date {
   }
   if (time) {
     const match = time.match(/^(\d+):(\d+)\s*(AM|PM)$/i);
+    const match24 = match ? null : time.match(/^(\d{1,2}):(\d{2})$/);
+    if (match24) {
+      d.setHours(parseInt(match24[1], 10), parseInt(match24[2], 10), 0, 0);
+    }
     if (match) {
       let hh = parseInt(match[1], 10);
       const mm = parseInt(match[2], 10);
@@ -82,29 +119,57 @@ export const RescheduleSheet = forwardRef<RescheduleSheetRef, RescheduleSheetPro
     const [visible, setVisible] = useState(false);
     const [bookingId, setBookingId] = useState<string | null>(null);
     const [selected, setSelected] = useState<Date>(new Date());
+    const [submitting, setSubmitting] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
     const open = useCallback((id: string, initial?: { date: string; time: string }) => {
       setBookingId(id);
       setSelected(parseInitial(initial?.date, initial?.time));
+      setError(null);
+      setSubmitting(false);
       setVisible(true);
     }, []);
 
     const close = useCallback(() => {
       setVisible(false);
       setBookingId(null);
+      setError(null);
+      setSubmitting(false);
     }, []);
 
     useImperativeHandle(ref, () => ({ open, close }));
 
-    const handleConfirm = useCallback(() => {
-      if (!bookingId) return;
-      onConfirm(bookingId, formatDate(selected), formatTime(selected));
+    const handleConfirm = useCallback(async () => {
+      if (!bookingId || submitting) return;
+      setSubmitting(true);
+      setError(null);
+      let outcome: RescheduleConfirmOutcome;
+      try {
+        outcome = await onConfirm(
+          bookingId,
+          formatDate(selected),
+          formatTime(selected),
+          formatTime24(selected),
+        );
+      } catch {
+        // onConfirm owns the messaging; a throw that escaped it still must
+        // not strand the spinner.
+        outcome = undefined;
+      }
+      setSubmitting(false);
+      if (outcome && "error" in outcome) {
+        setError(outcome.error);
+        return;
+      }
       setVisible(false);
       setBookingId(null);
-    }, [bookingId, onConfirm, selected]);
+    }, [bookingId, onConfirm, selected, submitting]);
 
     const handlePickerChange = useCallback((_e: DateTimePickerEvent, date?: Date) => {
-      if (date) setSelected(date);
+      if (date) {
+        setSelected(date);
+        setError(null);
+      }
     }, []);
 
     return (
@@ -140,14 +205,27 @@ export const RescheduleSheet = forwardRef<RescheduleSheetRef, RescheduleSheetPro
               />
             </View>
 
+            {error ? (
+              <Text size="sm" color="#DC2626" style={styles.errorText}>
+                {error}
+              </Text>
+            ) : null}
+
             <TouchableOpacity
-              style={styles.confirmButton}
-              onPress={handleConfirm}
+              style={[styles.confirmButton, submitting && styles.confirmButtonBusy]}
+              onPress={() => {
+                void handleConfirm();
+              }}
+              disabled={submitting}
               activeOpacity={0.85}
             >
-              <Text size="md" weight="semiBold" color="#FFFFFF">
-                Confirm New Time
-              </Text>
+              {submitting ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text size="md" weight="semiBold" color="#FFFFFF">
+                  Confirm New Time
+                </Text>
+              )}
             </TouchableOpacity>
           </View>
         </View>
@@ -197,5 +275,12 @@ const styles = StyleSheet.create({
     backgroundColor: "#5299FE",
     alignItems: "center",
     justifyContent: "center",
+  },
+  confirmButtonBusy: {
+    opacity: 0.7,
+  },
+  errorText: {
+    marginTop: 12,
+    textAlign: "center",
   },
 });

@@ -47,6 +47,8 @@ import { useNextAvailabilityForShop } from "@/hooks/useNextAvailabilityForShop";
 import { useNextAvailabilityPerMechanicForShop } from "@/hooks/useNextAvailabilityPerMechanicForShop";
 import { useTimeSlotsForShop, type QuoteHoldContext } from "@/hooks/useTimeSlotsForShop";
 import { readQuoteUnavailableReason } from "@/utils/quoteAvailability";
+import { formatBookingError, readBookingError } from "@/convex/lib/bookingErrors";
+import { joinServiceNames, serviceNamesFor, servicesShopDoesntOffer } from "@/lib/shopServiceCoverage";
 import { useToast } from "@/hooks/useToast";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { buildMechanicCarouselItems } from "@/lib/buildMechanicCarouselItems";
@@ -55,6 +57,7 @@ import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { resolveBookingVehicleVin } from "@/utils/bookingVehicle";
+import { useCoachAnchor } from "@/components/coach/useCoachAnchor";
 import {
   displayTimeToHHMM,
   findFirstAvailableDate,
@@ -88,12 +91,17 @@ type QuoteAwareHoldArgs = {
   session_id: string;
   held_by?: Id<"users">;
   quote_context?: QuoteHoldContext;
+  /** Liveness lease (bug #393) — regular checkouts only. The server ignores
+   *  it for quote_context holds, whose full TTL is the quote-accept grace. */
+  lease?: boolean;
 };
 
 type QuoteAwareHoldResult = {
   holdId: Id<"slot_holds"> | null;
   mechanicId: Id<"mechanics"> | null;
   expiresAt: number | null;
+  /** Director-TTL cap on a leased hold (heartbeats can't extend past it). */
+  hardExpiresAt?: number | null;
   disabled?: boolean;
 };
 
@@ -124,7 +132,6 @@ export default function PickDateTimeScreen() {
   const selectMechanic = useBookingStore((s) => s.selectMechanic);
   const ensureHoldSessionId = useBookingStore((s) => s.ensureHoldSessionId);
   const setSlotHold = useBookingStore((s) => s.setSlotHold);
-  const getShopById = useShopStore((s) => s.getShopById);
   const getMechanicById = useMechanicStore((s) => s.getMechanicById);
 
   // Slot-hold acquisition: reserve the mechanic+window the instant the customer
@@ -189,7 +196,9 @@ export default function PickDateTimeScreen() {
   // Offline gating for the slot grid below — temur-dev's restructure kept the
   // store reads (above) but not this, and it is still read further down.
   const conn = useConnection();
-  const shop = shopId ? getShopById(shopId) ?? null : null;
+  // Subscribed (not the stable getShopById) so the offered-services check in
+  // onConfirm sees portal toggles as they land (bug #404).
+  const shop = useShopStore((s) => (shopId ? s.shops[shopId] ?? null : null));
   const mechanic = selectedMechanicId ? getMechanicById(selectedMechanicId) ?? null : null;
 
   // Engine-adjusted + director-rounded labor (empirical → book →
@@ -273,6 +282,7 @@ export default function PickDateTimeScreen() {
       ? null
       : { year, month };
   });
+  const confirmAnchor = useCoachAnchor("booking.confirm", 24);
   const [monthPickerVisible, setMonthPickerVisible] = useState(false);
 
   // The date chips we'll render. For the current month we anchor on
@@ -499,6 +509,24 @@ export default function PickDateTimeScreen() {
     // holdSlot throws: keep the user here, toast, and don't advance. When the
     // feature flag is off holdSlot returns { holdId: null } (no throw) and we
     // proceed with no hold — the server-side availability check is the backstop.
+    // Last line before checkout for every pinned-shop path (shop detail,
+    // Quick Book, Book again, category Continue) — refuse a shop that doesn't
+    // offer the whole cart instead of letting Pay fail (bug #404). Quote
+    // accepts have no cart; the quote itself is the shop's offer.
+    if (!isQuoteAccept) {
+      const missingIds = servicesShopDoesntOffer(shop, selectedServiceIds) ?? [];
+      if (missingIds.length > 0) {
+        const names = serviceNamesFor(missingIds, availableServices);
+        toast.error(
+          `${shop.name} doesn't offer ${joinServiceNames(names)}`,
+          names.length > 1
+            ? "Remove them from your booking or pick another shop."
+            : "Remove it from your booking or pick another shop.",
+        );
+        return;
+      }
+    }
+
     const sessionId = ensureHoldSessionId();
     const holdDurationMinutes = totalMinutes > 0 ? totalMinutes : 60;
     try {
@@ -511,10 +539,25 @@ export default function PickDateTimeScreen() {
         session_id: sessionId,
         held_by: userId ?? undefined,
         quote_context: quoteHoldContext,
+        // Liveness lease for regular checkouts (bug #393): a killed app's hold
+        // stops blocking the slot within ~90s. Quote holds keep the full TTL.
+        lease: quoteHoldContext ? undefined : true,
       });
       setSlotHold(
         res?.holdId && res.expiresAt != null
-          ? { holdId: res.holdId, expiresAt: res.expiresAt }
+          ? {
+              holdId: res.holdId,
+              expiresAt: res.expiresAt,
+              hardExpiresAt: res.hardExpiresAt ?? null,
+              // What the checkout heartbeat re-holds if the lease lapses.
+              spec: {
+                shopId,
+                mechanicId: selectedMechanicId ?? null,
+                date: chosenDate,
+                startTime: startHHMM,
+                durationMinutes: holdDurationMinutes,
+              },
+            }
           : null,
       );
     } catch (error) {
@@ -531,7 +574,15 @@ export default function PickDateTimeScreen() {
         showStaleSlotSheet();
         return;
       }
-      toast.error("That time was just taken", "Please pick another slot.");
+      // holdSlot now throws SLOT_UNAVAILABLE carrying the server's sentence;
+      // other failures keep the old copy via the shared formatter.
+      const holdError = readBookingError(error);
+      toast.error(
+        !holdError || holdError.code === "SLOT_UNAVAILABLE"
+          ? "That time was just taken"
+          : "Couldn't hold that time",
+        formatBookingError(error, "Please pick another slot."),
+      );
       return; // do NOT navigate to payment
     }
 
@@ -813,10 +864,14 @@ export default function PickDateTimeScreen() {
         </View>
       </ScrollView>
 
-      <ConfirmBookingBar
-        selectionLabel={selectionLabel}
-        onPress={() => void onConfirm()}
-      />
+      {/* Coach anchor rides the existing wrapper — no node added, so the
+          bar cannot shift under the hint that points at it. */}
+      <View {...confirmAnchor}>
+        <ConfirmBookingBar
+          selectionLabel={selectionLabel}
+          onPress={() => void onConfirm()}
+        />
+      </View>
 
       <MonthPickerSheet
         visible={monthPickerVisible}

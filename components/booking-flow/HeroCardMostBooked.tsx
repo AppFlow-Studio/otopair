@@ -22,6 +22,9 @@ import { History } from "lucide-react-native";
 import { Text } from "@/components/shared-ui";
 import { CardShadow } from "@/constants/theme";
 import { useMostRecentBooking } from "@/hooks/useMostRecentBooking";
+import { useToast } from "@/hooks/useToast";
+import { dropServicesShopDoesntOffer } from "@/lib/pinnedShopCart";
+import { droppedServicesToast } from "@/lib/shopServiceCoverage";
 import { useBookingStore } from "@/stores/useBookingStore";
 
 /** Collapse the services list into one line: single service by
@@ -47,6 +50,7 @@ export function HeroCardMostBooked() {
     (s) => s.toggleServiceSelection,
   );
   const setPreSelectedShop = useBookingStore((s) => s.setPreSelectedShop);
+  const toast = useToast();
 
   const onPress = useCallback(() => {
     if (!booking?.shopId) return;
@@ -81,6 +85,22 @@ export function HeroCardMostBooked() {
     for (const id of matchedIds) toggleServiceSelection(id);
     setPreSelectedShop(booking.shopId);
 
+    // The shop may have stopped offering something from last time (bug
+    // #404). Drop those before the picker so checkout can't hit them, and
+    // name them. Nothing left → the shop page, to pick what it does offer.
+    const cart = dropServicesShopDoesntOffer(booking.shopId);
+    if (cart.status === "checked" && cart.droppedNames.length > 0) {
+      const copy = droppedServicesToast(cart.shopName, cart.droppedNames);
+      toast.warning(copy.title, copy.body);
+      if (cart.remainingCount === 0) {
+        router.push({
+          pathname: "/booking/shop/[id]",
+          params: { id: booking.shopId },
+        });
+        return;
+      }
+    }
+
     // Jump straight to the date/time picker. Empty `mechanicId`
     // param = "Any mechanic"; the user can change it in the
     // picker if they want the same person as last time.
@@ -98,6 +118,7 @@ export function HeroCardMostBooked() {
     clearSelectedServices,
     toggleServiceSelection,
     setPreSelectedShop,
+    toast,
   ]);
 
   const hasBooking = !!booking;

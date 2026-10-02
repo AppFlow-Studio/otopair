@@ -8,17 +8,52 @@
  * OWNER: Ahmad Hamoudeh
  */
 
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Smartphone } from 'lucide-react-native';
+import { useAction } from 'convex/react';
 
 import { GlassCard, PrimaryCta, useClaimData, WalkInScreen, WI } from '@/components/walk-in/WalkInKit';
 import { FontFamily } from '@/constants/theme';
+import { api } from '@/convex/_generated/api';
+import { useWalkInClaimStore } from '@/stores/useWalkInClaimStore';
 
 export default function VerifyPhoneScreen() {
   const data = useClaimData();
   const router = useRouter();
+  const token = useWalkInClaimStore((s) => s.token);
+  const sendCode = useAction(api.walkin_phone_verify.sendCode);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  /* The number is never typed and never sent from here — the server reads it
+     off the booking the shop created. A tracker link is shareable by design,
+     so if the client could name the destination, anyone holding the link
+     could point a verification code at a phone of their choosing. */
+  const handleSend = useCallback(async () => {
+    if (!token) {
+      // No token means this is the design preview, not a real claim. Let the
+      // flow continue so the screens stay walkable.
+      router.push('/(walk-in)/enter-code');
+      return;
+    }
+    if (sending) return;
+    setSending(true);
+    setError(null);
+    try {
+      const res = await sendCode({ token });
+      if (res.ok) {
+        router.push('/(walk-in)/enter-code');
+      } else {
+        setError(res.message);
+        setSending(false);
+      }
+    } catch {
+      setError("We couldn't send that just now. Please try again.");
+      setSending(false);
+    }
+  }, [token, sending, sendCode, router]);
 
   return (
     <WalkInScreen title="Verify" showBack>
@@ -48,7 +83,11 @@ export default function VerifyPhoneScreen() {
         <Text style={styles.legal}>
           Message and data rates may apply. By continuing you agree to the Terms and Privacy Policy.
         </Text>
-        <PrimaryCta label="Text me a code" onPress={() => router.push('/(walk-in)/enter-code')} />
+        {error ? <Text style={styles.error}>{error}</Text> : null}
+        <PrimaryCta
+          label={sending ? 'Sending…' : 'Text me a code'}
+          onPress={handleSend}
+        />
       </View>
     </WalkInScreen>
   );
@@ -89,6 +128,13 @@ const styles = StyleSheet.create({
     marginTop: 22,
   },
   footer: { marginTop: 'auto', paddingBottom: 28 },
+  error: {
+    fontFamily: FontFamily.medium,
+    fontSize: 13,
+    lineHeight: 18,
+    color: '#B91C1C',
+    marginBottom: 12,
+  },
   legal: {
     fontFamily: FontFamily.regular,
     fontSize: 11.5,

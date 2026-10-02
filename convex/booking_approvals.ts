@@ -58,8 +58,12 @@ import {
 import {
   enqueueNotificationOutbox,
   buildCustomerPushPayload,
+  resolveApprovalAsks,
 } from "./lib/notificationOutbox";
 import { resolveVehicleDisplay } from "./lib/bookingEnrichment";
+import { approvalsNewestFirst } from "./lib/bookingMoney";
+import { loadBookingMoney } from "./bookingMoney";
+import { approvalDecisionConflict } from "./lib/checkoutPrice";
 
 const SLA_MS = 24 * 60 * 60 * 1000;
 
@@ -371,12 +375,25 @@ async function performSubmission(
   const booking: any = await ctx.db.get(args.bookingId);
   if (!booking) throw new Error("Booking not found.");
 
-  // Drop blank-name priced rows ONCE, up front, so the billed subtotal
-  // (partsSubtotalCents) and the customer-facing/iOS-card-hold parts_snapshot
-  // are computed from the identical set — this is what stops the "3 counted /
-  // 5 billed" divergence. Silent drop, not throw: a mixed submit with one stray
-  // blank row still succeeds (the good rows go through); the client submit-guard
-  // surfaces the blank to the mechanic before the network call.
+  // A part the shop is CHARGING for must have a name — the customer is asked to
+  // authorize every line, and an unnamed $0.01 line reached the card-hold as a
+  // blank row (#331). Reject rather than silently drop: a silent drop billed the
+  // customer less than the shop's own total showed, and nobody was told. The
+  // client guard stops this before the network call; this is the backstop.
+  // Blank rows that carry no charge (not used / customer-supplied / $0) are
+  // just stray entries and are dropped below.
+  const unnamedPriced = args.parts.find(
+    (p) =>
+      !isNamedPart(p) &&
+      p.not_used !== true &&
+      p.supplied_by !== "customer" &&
+      (p.cost ?? 0) > 0,
+  );
+  if (unnamedPriced) {
+    throw new Error(
+      "Every part with a price needs a name. Add a name or remove the part, then send again.",
+    );
+  }
   const cleanParts = args.parts.filter(isNamedPart);
 
   // Hard $10,000-per-line ceiling on any mechanic-entered price. Reject over-cap
@@ -991,6 +1008,14 @@ export const applyApprovalDecision = mutation({
   args: {
     bookingId: v.id("bookings"),
     decision: v.union(v.literal("approved"), v.literal("declined")),
+    // What the approve screen rendered (getOpenApprovalForBooking `_id` /
+    // `mechanic_set_price_cents`). When the newest open estimate is a
+    // different row or amount, the decision is rejected with PRICE_CHANGED
+    // instead of approving a price the customer never saw — a
+    // withdraw-and-resubmit between view and tap (#390). Optional: older
+    // builds send neither and decide the newest open estimate, as before.
+    expected_approval_id: v.optional(v.string()),
+    expected_total_cents: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const user = await getCurrentUserOrNull(ctx);
@@ -1014,6 +1039,17 @@ export const applyApprovalDecision = mutation({
       .collect();
     const open = candidates.find((r: any) => r.decision == null);
 
+    // Commit-time check, before any write: booking closed, nothing open to
+    // decide, or the open estimate isn't the one on the customer's screen →
+    // typed error with customer copy (convex/lib/checkoutPrice.ts).
+    const conflict = approvalDecisionConflict({
+      booking,
+      open: open ?? null,
+      decision: args.decision,
+      expectedApprovalId: args.expected_approval_id,
+      expectedTotalCents: args.expected_total_cents,
+    });
+    if (conflict) throw conflict;
     if (!open) {
       throw new Error("No estimate is waiting for your decision.");
     }
@@ -1061,6 +1097,13 @@ export const applyApprovalDecision = mutation({
         approvedPatch.labor_cost = (open.labor_cents ?? 0) / 100;
       }
       await ctx.db.patch(args.bookingId, approvedPatch);
+      // The ask has been answered — retire it so the bell stops offering an
+      // action that no longer exists. #343.
+      await resolveApprovalAsks(ctx, {
+        bookingId: args.bookingId,
+        reason: "user_action",
+        now,
+      });
       // The customer just said yes to the (pre/mid-job) estimate → surface any
       // off-catalog lines it carried on their booking card. They were staged
       // `pending_confirmation` at add-time so an unapproved line never showed on
@@ -1135,6 +1178,20 @@ export const applyApprovalDecision = mutation({
       estimate_decided_by_user_id: user._id,
       sla_expires_at_ms: undefined,
       updated_at: now,
+      // performSubmission raised the set price when the change was REQUESTED.
+      // Declined, it isn't the price: roll it back to the last agreed ceiling,
+      // as SLA expiry (_revertToPriorCeilingAfterExpiry) and continueAtOriginalScope
+      // already do — otherwise a later re-authorization targets max(set, ceiling)
+      // and holds the amount the customer just said no to.
+      ...(typeof booking.running_approved_ceiling_cents === "number"
+        ? { mechanic_set_price_cents: booking.running_approved_ceiling_cents }
+        : {}),
+    });
+    // Declining answers the ask just as much as approving does. #343.
+    await resolveApprovalAsks(ctx, {
+      bookingId: args.bookingId,
+      reason: "user_action",
+      now,
     });
     if (cycle === "post_job" && ctx.scheduler?.runAfter) {
       // Capture at the prior approved ceiling. finalizeAndChargeForBooking
@@ -1241,7 +1298,14 @@ export const continueAtOriginalScope = mutation({
  * Post-job is a final capture, not a hold, so it stays on `applyApprovalDecision`.
  */
 export const _recordApprovalApproved = internalMutation({
-  args: { bookingId: v.id("bookings"), userId: v.id("users") },
+  args: {
+    bookingId: v.id("bookings"),
+    userId: v.id("users"),
+    // Same "approve what you saw" contract as applyApprovalDecision (#390),
+    // passed through from approveAndAuthorizeHold. Optional for old builds.
+    expectedApprovalId: v.optional(v.string()),
+    expectedTotalCents: v.optional(v.number()),
+  },
   handler: async (ctx, args) => {
     const booking: any = await ctx.db.get(args.bookingId);
     if (!booking) throw new Error("Booking not found.");
@@ -1257,6 +1321,14 @@ export const _recordApprovalApproved = internalMutation({
       .order("desc")
       .collect();
     const open = candidates.find((r: any) => r.decision == null);
+    const conflict = approvalDecisionConflict({
+      booking,
+      open: open ?? null,
+      decision: "approved",
+      expectedApprovalId: args.expectedApprovalId,
+      expectedTotalCents: args.expectedTotalCents,
+    });
+    if (conflict) throw conflict;
     if (!open) throw new Error("No estimate is waiting for your decision.");
 
     const cycle = open.cycle as "pre_job" | "mid_job" | "post_job";
@@ -1284,6 +1356,12 @@ export const _recordApprovalApproved = internalMutation({
       total_cost: (open.mechanic_set_price_cents ?? 0) / 100,
       updated_at: now,
     };
+    // Approved via the reauth path — same ask, same retirement. #343.
+    await resolveApprovalAsks(ctx, {
+      bookingId: args.bookingId,
+      reason: "user_action",
+      now,
+    });
     // Shop-set (fixed OR range): the approval row's parts/labor are the on-top
     // delta only — don't erase the locked base breakdown. (Mirrors
     // applyApprovalDecision.)
@@ -1341,7 +1419,20 @@ export const getOpenApprovalForBooking = query({
       cycle: open.cycle,
       mechanic_set_price_cents: open.mechanic_set_price_cents,
       prior_ceiling_cents: open.prior_ceiling_cents,
-      parts_snapshot: open.parts_snapshot,
+      // Names are never blank on screen: a legacy blank-name row renders as its
+      // part number or "Unnamed part" (#331).
+      parts_snapshot: (open.parts_snapshot ?? []).map((p: any) => ({
+        ...p,
+        part_name: partDisplayName(p),
+      })),
+      // The frozen breakdown the total was priced from. Render these instead of
+      // re-deriving parts/labor/tax on the phone — a flat-priced added line is
+      // in parts_subtotal_cents but not in parts_snapshot, so the client
+      // re-derivation put it under "Taxes & Fees".
+      parts_subtotal_cents: open.parts_subtotal_cents ?? null,
+      labor_cents: open.labor_cents ?? null,
+      tax_cents: open.tax_cents ?? null,
+      service_fee_cents: open.service_fee_cents ?? null,
       labor_hours: open.labor_hours,
       labor_rate_cents: open.labor_rate_cents,
       notes: open.notes,
@@ -1363,34 +1454,9 @@ export const getOpenApprovalForBooking = query({
  * the numbers reconcile. Returns null when no adjustment was approved (the
  * caller then falls back to the booking's original quote).
  */
-/**
- * Approval rows, genuinely newest-first.
- *
- * ─── WHY THIS EXISTS ────────────────────────────────────────────────────────
- * `.order("desc")` on `by_booking_and_cycle` does NOT give you this. That index
- * is ["booking_id", "cycle"], so descending sorts by the CYCLE STRING:
- *
- *     "pre_job"  >  "post_job"  >  "mid_job"
- *
- * So "the first row" was always the pre-job one, whatever had happened since.
- * Three separate reads took that first row as "latest" — including the
- * customer-facing receipt — which meant a mid-job change the customer had
- * approved and paid for was invisible downstream: the post-job confirmation
- * showed the original parts list and the original total, short by exactly the
- * work that had just been added.
- *
- * Sort by when the customer actually answered. `_creationTime` covers rows
- * written before `decided_at_ms` existed.
- */
-function approvalsNewestFirst<T extends { decided_at_ms?: number; _creationTime?: number }>(
-  rows: T[],
-): T[] {
-  return [...rows].sort(
-    (a, b) =>
-      (b.decided_at_ms ?? b._creationTime ?? 0) -
-      (a.decided_at_ms ?? a._creationTime ?? 0),
-  );
-}
+// Approval rows newest-first by decision time: `approvalsNewestFirst` in
+// lib/bookingMoney.ts (why `.order("desc")` on by_booking_and_cycle is wrong
+// is documented there).
 
 export const getEffectiveQuoteForBooking = query({
   args: { bookingId: v.id("bookings") },
@@ -1511,6 +1577,29 @@ export const getReauthBreakdownForBooking = query({
           justification_text: v.optional(v.string()),
         }),
       ),
+      /**
+       * The mechanic's scope-justification photos, resolved to signed URLs.
+       *
+       * These already rendered on the approve/decline screen. They never
+       * reached HERE — and here is the only screen an IN-RANGE change is ever
+       * shown on: it auto-approves, so there is no open row and no decision to
+       * make, and the customer meets the change for the first time as a hold to
+       * confirm. The photos were being filed against the one path that skips
+       * the screen that renders them. Bug #326.
+       *
+       * `[]` on the quote fallback — an original quote has no mechanic scope.
+       */
+      scopePhotos: v.array(
+        v.object({ storage_id: v.id("_storage"), url: v.string() }),
+      ),
+      /** Exactly what confirming this hold authorizes on the card — the same
+       *  max(set price, approved ceiling) approveAndAuthorizeHold /
+       *  resumeReauthFromMobile use. Render THIS as "New hold amount". */
+      holdTargetCents: v.number(),
+      /** Shop set prices (pre-tax) folded into laborCents above. */
+      setPriceCents: v.number(),
+      /** Explicit reconciliation on legacy rows, folded into partsCents. */
+      adjustmentCents: v.number(),
     }),
   ),
   handler: async (ctx, args) => {
@@ -1520,95 +1609,56 @@ export const getReauthBreakdownForBooking = query({
     if (!booking) return null;
     if (String((booking as any).user_id) !== String(user._id)) return null;
 
-    // ── Primary: latest approved approval row ────────────────────────────
-    const rows = await ctx.db
-      .query("booking_approvals")
-      .withIndex("by_booking_and_cycle", (q: any) =>
-        q.eq("booking_id", args.bookingId),
+    // The canonical statement — the same numbers the receipt, the PDF, the shop
+    // and capture use. Rows are billable lines only, never blank-named (#331).
+    const money = await loadBookingMoney(ctx, booking);
+    if (!money) return null;
+    if (money.parts.length === 0 && !(money.totals.totalCents > 0)) return null;
+
+    const eff: any = money.agreedApprovalId
+      ? await ctx.db.get(money.agreedApprovalId as Id<"booking_approvals">)
+      : null;
+    // Same resolution as getOpenApprovalForBooking: a storage id that no longer
+    // resolves is dropped rather than rendering a broken tile.
+    const scopePhotos = (
+      await Promise.all(
+        ((eff?.scope_photo_ids ?? []) as Id<"_storage">[]).map(async (storage_id) => {
+          const url = await ctx.storage.getUrl(storage_id);
+          return url ? { storage_id, url } : null;
+        }),
       )
-      .order("desc")
-      .collect();
-    const APPROVED = new Set(["approved", "auto_approved_within_range"]);
-    // Newest by decision time — see approvalsNewestFirst. This one is the
-    // customer's own view, so picking the pre-job row showed them a receipt
-    // for work they'd already agreed to change.
-    const eff = approvalsNewestFirst(rows as any[]).find(
-      (r: any) =>
-        APPROVED.has(r.decision ?? "") &&
-        r.parts_subtotal_cents != null &&
-        r.labor_cents != null,
-    );
+    ).filter((p): p is { storage_id: Id<"_storage">; url: string } => p !== null);
 
-    if (eff) {
-      const parts = ((eff.parts_snapshot ?? []) as any[])
-        .filter((p) => !p?.not_used && p?.supplied_by !== "customer")
-        .map((p) => {
-          const quantity = Math.max(0, p?.quantity ?? 1);
-          const unitPriceCents = Math.round((p?.cost ?? 0) * 100);
-          return {
-            part_name: partDisplayName(p),
-            ...(p?.oem_number ? { oem_number: p.oem_number as string } : {}),
-            ...(p?.brand ? { brand: p.brand as string } : {}),
-            quantity,
-            unit_price_cents: unitPriceCents,
-            line_total_cents: Math.round((p?.cost ?? 0) * quantity * 100),
-            ...(p?.justification_text
-              ? { justification_text: p.justification_text as string }
-              : {}),
-          };
-        });
-      return {
-        source: "approved" as const,
-        cycle: (eff.cycle ?? null) as string | null,
-        totalCents: eff.mechanic_set_price_cents as number,
-        partsCents: (eff.parts_subtotal_cents ?? 0) as number,
-        laborCents: (eff.labor_cents ?? 0) as number,
-        taxCents: (eff.tax_cents ?? 0) as number,
-        feeCents: (eff.service_fee_cents ?? 0) as number,
-        laborHours: (eff.labor_hours ?? null) as number | null,
-        notes: (eff.notes ?? null) as string | null,
-        parts,
-      };
-    }
-
-    // ── Fallback: booking's original frozen quote ────────────────────────
-    const qb = (booking as any).quoted_breakdown as
-      | {
-          parts_cents: number;
-          labor_cents: number;
-          tax_cents: number;
-          service_fee_cents: number;
-        }
-      | undefined;
-    const snapshot = ((booking as any).priced_parts_snapshot ?? []) as any[];
-    if (!qb && snapshot.length === 0) return null;
-
-    const partsCents = qb?.parts_cents ?? 0;
-    const laborCents = qb?.labor_cents ?? 0;
-    const taxCents = qb?.tax_cents ?? 0;
-    const feeCents = qb?.service_fee_cents ?? 0;
-    // Rows the snapshotRevalidation sweep stamped as cross-make contaminated
-    // are hidden from the itemization; the frozen totals above stay the
-    // contract, so lines may sum to less than parts_cents — accepted.
-    const parts = snapshot.filter((p) => p?.integrity_flag == null).map((p) => ({
-      part_name: partDisplayName(p),
-      ...(p?.oem_number ? { oem_number: p.oem_number as string } : {}),
-      ...(p?.brand ? { brand: p.brand as string } : {}),
-      quantity: Math.max(0, p?.quantity ?? 1),
-      unit_price_cents: (p?.unit_price_cents ?? 0) as number,
-      line_total_cents: (p?.line_total_cents ?? 0) as number,
+    // Rows the integrity sweep flagged as likely-wrong-vehicle stay out of the
+    // customer's itemization (as before); the totals remain the contract.
+    const parts = money.parts.filter((p) => !p.unverified).map((p) => ({
+      part_name: p.name,
+      ...(p.partNumber ? { oem_number: p.partNumber } : {}),
+      ...(p.brand ? { brand: p.brand } : {}),
+      quantity: p.quantity,
+      unit_price_cents: p.unitCents,
+      line_total_cents: p.lineCents,
+      ...(p.justification ? { justification_text: p.justification } : {}),
     }));
     return {
-      source: "quote" as const,
-      cycle: null,
-      totalCents: partsCents + laborCents + taxCents + feeCents,
-      partsCents,
-      laborCents,
-      taxCents,
-      feeCents,
-      laborHours: null,
-      notes: null,
+      source: money.basis === "approval" ? ("approved" as const) : ("quote" as const),
+      cycle: money.agreedCycle,
+      totalCents: money.totals.totalCents,
+      // The current app renders a four-row stack; fold the set price into labor
+      // and any adjustment into parts so it sums to the total.
+      partsCents: money.totals.partsCents + money.totals.adjustmentCents,
+      laborCents: money.totals.laborCents + money.totals.setPriceCents,
+      taxCents: money.totals.taxCents,
+      feeCents: money.totals.feeCents,
+      laborHours:
+        (eff?.labor_hours as number | undefined) ??
+        (money.totals.laborMinutes != null ? money.totals.laborMinutes / 60 : null),
+      notes: (eff?.notes ?? null) as string | null,
       parts,
+      scopePhotos,
+      holdTargetCents: money.holdTargetCents,
+      setPriceCents: money.totals.setPriceCents,
+      adjustmentCents: money.totals.adjustmentCents,
     };
   },
 });
@@ -2079,6 +2129,13 @@ export const withdrawPendingApproval = mutation({
       mechanic_set_price_cents: undefined,
       updated_at: now,
     });
+    // The shop pulled the estimate back; the customer's card would open onto
+    // nothing. #343.
+    await resolveApprovalAsks(ctx, {
+      bookingId: args.bookingId,
+      reason: "superseded",
+      now,
+    });
 
     await enqueueCustomerApprovalPush(ctx, {
       booking,
@@ -2117,6 +2174,12 @@ export const _markApprovalExpired = internalMutation({
       payment_approval_state: "sla_expired",
       sla_expires_at_ms: undefined,
       updated_at: now,
+    });
+    // Window closed — the card can no longer be acted on. #343.
+    await resolveApprovalAsks(ctx, {
+      bookingId: args.bookingId,
+      reason: "expired",
+      now,
     });
   },
 });

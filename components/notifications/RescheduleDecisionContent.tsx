@@ -26,6 +26,10 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { BrandColors, BorderRadius, Spacing } from "@/constants/theme";
 import { formatServiceDisplayNames } from "@/utils/serviceDisplayName";
+import {
+  formatBookingError,
+  isStaleStateError,
+} from "@/convex/lib/bookingErrors";
 
 interface Props {
   bookingId: Id<"bookings">;
@@ -65,6 +69,9 @@ export function RescheduleDecisionContent({ bookingId, onClose }: Props) {
   const [submitting, setSubmitting] = useState<"accept" | "decline" | null>(
     null,
   );
+  // Set when the answer lost a race (the shop re-proposed / withdrew, or the
+  // booking ended): the server's sentence replaces Accept/Decline (#403).
+  const [staleMessage, setStaleMessage] = useState<string | null>(null);
 
   const isForcedDelay = booking?.scheduleChangeMode === "forced_delay";
 
@@ -113,6 +120,28 @@ export function RescheduleDecisionContent({ bookingId, onClose }: Props) {
     );
   }
 
+  if (staleMessage) {
+    return (
+      <View
+        style={[
+          styles.container,
+          styles.center,
+          { paddingTop: insets.top + 80, paddingHorizontal: Spacing["2xl"] },
+        ]}
+      >
+        <Text size="xl" weight="semiBold" color={BrandColors.primary}>
+          This was already handled
+        </Text>
+        <Text size="md" color={BrandColors.primary} style={styles.center}>
+          {staleMessage}
+        </Text>
+        <Button onPress={onClose} variant="primary" size="lg">
+          Close
+        </Button>
+      </View>
+    );
+  }
+
   // The proposal was already decided (accepted / declined / withdrawn / the
   // 24h offer lapsed) and the booking has moved on. Reachable when the customer
   // taps a stale push from the tray — show a resolved state instead of an
@@ -141,15 +170,26 @@ export function RescheduleDecisionContent({ bookingId, onClose }: Props) {
     );
   }
 
+  // The proposal on screen. Sent with the answer so it can't apply to a time
+  // the shop changed after this opened (bug #403).
+  const expectedProposal = {
+    expectedScheduledDate: booking.scheduledDate ?? undefined,
+    expectedScheduledTime: booking.scheduledTime ?? undefined,
+  };
+
   const handleAccept = async () => {
     try {
       setSubmitting("accept");
-      await approveMutation({ bookingId });
+      await approveMutation({ bookingId, ...expectedProposal });
       onClose();
-    } catch (err: any) {
+    } catch (err) {
+      if (isStaleStateError(err)) {
+        setStaleMessage(formatBookingError(err, "This change was already handled."));
+        return;
+      }
       Alert.alert(
         "Couldn't accept",
-        err?.message ?? "Please try again in a moment.",
+        formatBookingError(err, "Please try again in a moment."),
       );
     } finally {
       setSubmitting(null);
@@ -168,12 +208,18 @@ export function RescheduleDecisionContent({ bookingId, onClose }: Props) {
           onPress: async () => {
             try {
               setSubmitting("decline");
-              await declineMutation({ bookingId });
+              await declineMutation({ bookingId, ...expectedProposal });
               onClose();
-            } catch (err: any) {
+            } catch (err) {
+              if (isStaleStateError(err)) {
+                setStaleMessage(
+                  formatBookingError(err, "This change was already handled."),
+                );
+                return;
+              }
               Alert.alert(
                 "Couldn't decline",
-                err?.message ?? "Please try again in a moment.",
+                formatBookingError(err, "Please try again in a moment."),
               );
             } finally {
               setSubmitting(null);

@@ -68,6 +68,36 @@ import {
 } from "@/components/receipts/ReceiptContent";
 import { ReceiptSkeleton } from "@/components/receipts/ReceiptSkeleton";
 import { formatServiceDisplayNames } from "@/utils/serviceDisplayName";
+import {
+  formatBookingError,
+  readBookingError,
+  type BookingErrorData,
+} from "@/convex/lib/bookingErrors";
+import { alreadyClosedCancelCopy } from "@/lib/error-ui";
+
+/**
+ * Codes that mean the approval never happened because the estimate on screen
+ * is no longer the one to decide (#390). PRICE_CHANGED keeps the screen — the
+ * reactive query already shows the new estimate; the rest mean there is
+ * nothing left to decide here, so we leave.
+ */
+function approvalConflict(
+  err: unknown,
+): { kind: "price_changed" | "closed"; message: string } | null {
+  const data: BookingErrorData | null = readBookingError(err);
+  if (!data) return null;
+  if (data.code === "PRICE_CHANGED") {
+    return { kind: "price_changed", message: data.message };
+  }
+  if (
+    data.code === "BOOKING_ALREADY_CANCELLED" ||
+    data.code === "BOOKING_STATE_CHANGED" ||
+    data.code === "BOOKING_NOT_FOUND"
+  ) {
+    return { kind: "closed", message: data.message };
+  }
+  return null;
+}
 
 function formatUsd(cents: number | undefined | null): string {
   const v = ((cents ?? 0) / 100).toFixed(2);
@@ -498,6 +528,37 @@ function ApprovalDecisionView({
       }>
     | undefined;
 
+  // The estimate the customer is looking at. Sent with every decision so the
+  // server refuses one that changed after this screen rendered it (#390).
+  const expectedApproval = useMemo(
+    () =>
+      approval
+        ? {
+            expected_approval_id: String(approval._id),
+            expected_total_cents: approval.mechanic_set_price_cents,
+          }
+        : {},
+    [approval],
+  );
+
+  // PRICE_CHANGED → say so and stay (the new estimate is already rendered);
+  // closed/state-changed → say so and leave. Returns true when handled.
+  const handleApprovalConflict = useCallback(
+    (err: unknown): boolean => {
+      const conflict = approvalConflict(err);
+      if (!conflict) return false;
+      if (conflict.kind === "price_changed") {
+        setPhase("review");
+        Alert.alert("The estimate changed", conflict.message);
+      } else {
+        toast.info(conflict.message);
+        router.back();
+      }
+      return true;
+    },
+    [router, toast],
+  );
+
   const handleAccept = useCallback(
     async (amountCents: number, postJob: boolean) => {
       if (busy) return;
@@ -508,14 +569,19 @@ function ApprovalDecisionView({
       // records the approval and lets the server finalize + charge.
       if (postJob) {
         try {
-          await applyDecision({ bookingId, decision: "approved" });
+          await applyDecision({
+            bookingId,
+            decision: "approved",
+            ...expectedApproval,
+          });
           toast.success("Estimate approved", undefined, { icon: FileCheck });
           router.back();
-        } catch (err: any) {
+        } catch (err) {
+          if (handleApprovalConflict(err)) return;
           setPhase("review");
           Alert.alert(
             "Could not approve",
-            err?.message ?? "Try again in a moment.",
+            formatBookingError(err, "Try again in a moment."),
           );
         }
         return;
@@ -544,6 +610,7 @@ function ApprovalDecisionView({
           bookingId,
           paymentMethodId: resolved.paymentMethodId,
           paymentOrigin: resolved.paymentOrigin,
+          ...expectedApproval,
         });
         if (pi.requiresAction) {
           const { error } = await handleNextAction(pi.clientSecret);
@@ -560,12 +627,18 @@ function ApprovalDecisionView({
         }
         toast.success("Estimate approved", undefined, { icon: FileCheck });
         router.back();
-      } catch (err: any) {
+      } catch (err) {
+        // A typed conflict is thrown BEFORE the approval is recorded or any
+        // hold placed, so nothing was approved — don't send them to reauth.
+        if (handleApprovalConflict(err)) {
+          router.setParams({ inlineHold: undefined });
+          return;
+        }
         // The estimate IS approved; only the hold failed. Hand off to the reauth
         // screen (retry / change card / cancel) rather than stranding them.
         Alert.alert(
           "Couldn't confirm the hold",
-          err?.message ?? "You can try again on the next screen.",
+          formatBookingError(err, "You can try again on the next screen."),
         );
         router.setParams({ mode: "reauth" });
       }
@@ -575,6 +648,8 @@ function ApprovalDecisionView({
       canConfirm,
       applyDecision,
       approveAndAuthorizeHold,
+      expectedApproval,
+      handleApprovalConflict,
       resolvePaymentMethod,
       handleNextAction,
       bookingId,
@@ -608,17 +683,22 @@ function ApprovalDecisionView({
           onPress: async () => {
             setSubmitting("declined");
             try {
-              await applyDecision({ bookingId, decision: "declined" });
+              await applyDecision({
+                bookingId,
+                decision: "declined",
+                ...expectedApproval,
+              });
               toast.info(
                 isMidJob ? "Added work declined" : "Estimate declined",
                 undefined,
                 { icon: FileX },
               );
               router.back();
-            } catch (err: any) {
+            } catch (err) {
+              if (handleApprovalConflict(err)) return;
               Alert.alert(
                 "Could not decline",
-                err?.message ?? "Try again in a moment.",
+                formatBookingError(err, "Try again in a moment."),
               );
             } finally {
               setSubmitting(null);
@@ -652,6 +732,30 @@ function ApprovalDecisionView({
   }
 
   if (isLoading || !approval || !breakdown) {
+    // Landing here is almost always a STALE NOTIFICATION, not an error: the
+    // estimate card stayed in the bell after the customer answered it, and
+    // tapping it again finds no open row. "No estimate is waiting for your
+    // review." was the whole screen — no explanation, no way forward — so it
+    // read as "your approval didn't go through". It had. Bug #343.
+    //
+    // The booking's own state says what actually happened, so say that, and
+    // always offer the way back to the booking.
+    const pas = (booking as { payment_approval_state?: string } | null)
+      ?.payment_approval_state;
+    const settled = (() => {
+      if (isLoading) return null;
+      if (!pas) return null;
+      if (pas.endsWith("_approved") || pas === "hold_processing" || pas === "captured" || pas === "in_range") {
+        return "You've already approved this update. Nothing else is needed.";
+      }
+      if (pas.endsWith("_declined")) {
+        return "You declined this update. Your mechanic has been told.";
+      }
+      if (pas === "sla_expired") {
+        return "This estimate expired before it was answered. Your mechanic will be in touch.";
+      }
+      return null;
+    })();
     return (
       <View style={[styles.root, { paddingTop: insets.top + Spacing.lg }]}>
         <Pressable onPress={() => router.back()} style={styles.backBtn}>
@@ -659,9 +763,27 @@ function ApprovalDecisionView({
           <Text style={styles.backLabel}>Back</Text>
         </Pressable>
         <View style={styles.center}>
-          <Text style={{ color: SemanticColors.textMuted }}>
-            {isLoading ? "Loading…" : "No estimate is waiting for your review."}
+          <Text style={[styles.emptyText, { color: SemanticColors.textMuted }]}>
+            {isLoading
+              ? "Loading…"
+              : (settled ?? "No estimate is waiting for your review.")}
           </Text>
+          {!isLoading ? (
+            <Pressable
+              onPress={() =>
+                router.replace({
+                  pathname: "/(main-tabs)/bookings",
+                  params: { bookingId: String(bookingId) },
+                } as never)
+              }
+              style={styles.emptyCta}
+              accessibilityRole="button"
+            >
+              <Text weight="semiBold" style={styles.emptyCtaLabel}>
+                View booking details
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
       </View>
     );
@@ -810,7 +932,7 @@ function ApprovalDecisionView({
               <View key={idx} style={styles.partRow}>
                 <View style={{ flex: 1 }}>
                   <Text weight="semiBold" style={styles.partName}>
-                    {p?.part_name ?? "Part"}
+                    {p?.part_name?.trim() || "Part"}
                   </Text>
                   {p?.oem_number ? (
                     <Text style={styles.partOem}>
@@ -1144,6 +1266,9 @@ interface ReauthBreakdown {
   laborHours: number | null;
   notes: string | null;
   parts: ReauthBreakdownPart[];
+  /** Mechanic's scope-justification photos. `[]` on the quote fallback, and
+   *  on any deploy that predates the field — hence the optional. */
+  scopePhotos?: { storage_id: string; url: string }[];
 }
 
 /**
@@ -1222,6 +1347,8 @@ function ReauthView({
   const [submitting, setSubmitting] = useState(false);
   // Payment picker (Apple Pay / Google Pay / saved cards / add card).
   const [pickerVisible, setPickerVisible] = useState(false);
+  // Full-screen viewer for a tapped mechanic scope photo (null = closed).
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const toast = useToast();
   // Phase policy — same source of truth as the booking card / details sheet.
   // Drives whether "Cancel booking" shows here and what it does. A completed
@@ -1286,10 +1413,10 @@ function ReauthView({
         throw new Error(`Card authorization failed (status: ${pi.status}).`);
       }
       router.back();
-    } catch (err: any) {
+    } catch (err) {
       Alert.alert(
         "Couldn't confirm hold",
-        err?.message ?? "Try again in a moment.",
+        formatBookingError(err, "Try again in a moment."),
       );
     } finally {
       setSubmitting(false);
@@ -1326,10 +1453,10 @@ function ReauthView({
             try {
               await requestPickupMut({ bookingId });
               toast.info("Pickup request sent. The shop will confirm.");
-            } catch (err: any) {
+            } catch (err) {
               Alert.alert(
                 "Couldn't send request",
-                err?.message ?? "Try again in a moment.",
+                formatBookingError(err, "Try again in a moment."),
               );
             }
             router.back();
@@ -1341,29 +1468,51 @@ function ReauthView({
 
     // Free or late-fee cancel — the fee (when any) is disclosed in the body and
     // confirm label before we charge. The server recomputes and rejects if the
-    // fee rose past what was acknowledged.
-    Alert.alert(copy.title, copy.body, [
-      { text: "Keep booking", style: "cancel" },
-      {
-        text: copy.confirmLabel,
-        style: "destructive",
-        onPress: async () => {
-          try {
-            await cancelBookingMut({
-              bookingId,
-              feeAcknowledgedCents: bookingActions.feeCentsIfCancelledNow,
-            });
-            toast.success("Booking cancelled.", undefined, { icon: FileX });
-          } catch (err: any) {
-            Alert.alert(
-              "Couldn't cancel",
-              err?.message ?? "Try again in a moment.",
-            );
-          }
-          router.back();
+    // fee rose past what was acknowledged; FEE_CHANGED re-opens this confirm
+    // at the new amount instead of leaving (bug #394).
+    const confirmCancel = (feeCents: number) => {
+      const feeCopy = buildCancelCopy({
+        ...bookingActions,
+        feeCentsIfCancelledNow: feeCents,
+      });
+      Alert.alert(feeCopy.title, feeCopy.body, [
+        { text: "Keep booking", style: "cancel" },
+        {
+          text: feeCopy.confirmLabel,
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const result = await cancelBookingMut({
+                bookingId,
+                feeAcknowledgedCents: feeCents,
+              });
+              // Someone else ended it first: say who, never "cancelled".
+              const closed = alreadyClosedCancelCopy(result);
+              if (closed) {
+                toast.info(closed);
+              } else {
+                toast.success("Booking cancelled.", undefined, { icon: FileX });
+              }
+            } catch (err) {
+              const data = readBookingError(err);
+              if (data?.code === "FEE_CHANGED" && typeof data.currentCents === "number") {
+                const currentCents = data.currentCents;
+                Alert.alert("Couldn't cancel", data.message, [
+                  { text: "OK", onPress: () => confirmCancel(currentCents) },
+                ]);
+                return;
+              }
+              Alert.alert(
+                "Couldn't cancel",
+                formatBookingError(err, "Try again in a moment."),
+              );
+            }
+            router.back();
+          },
         },
-      },
-    ]);
+      ]);
+    };
+    confirmCancel(bookingActions.feeCentsIfCancelledNow);
   }, [
     submitting,
     bookingActions,
@@ -1569,6 +1718,38 @@ function ReauthView({
               </View>
             ) : null}
 
+            {/* The visual half of "why the change". Same strip, same position
+                relative to the reason, as the approve/decline screen — this is
+                the screen an in-range change is actually shown on, so leaving
+                it out here meant the photos had nowhere to land. */}
+            {(breakdown.scopePhotos ?? []).length > 0 ? (
+              <View style={styles.scopePhotos}>
+                <Text weight="semiBold" style={styles.scopePhotosLabel}>
+                  Photos from your mechanic
+                </Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.scopePhotoStrip}
+                >
+                  {(breakdown.scopePhotos ?? []).map((p) => (
+                    <Pressable
+                      key={p.storage_id}
+                      onPress={() => setLightboxUrl(p.url)}
+                      accessibilityRole="imagebutton"
+                      accessibilityLabel="View mechanic photo"
+                    >
+                      <Image
+                        source={{ uri: p.url }}
+                        style={styles.scopeThumb}
+                        resizeMode="cover"
+                      />
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+            ) : null}
+
             <View style={styles.cardDivider} />
 
             <View style={styles.totalsBlock}>
@@ -1728,6 +1909,40 @@ function ReauthView({
         googlePaySupported={googlePaySupported}
         onAddCard={() => router.push({ pathname: "/add-payment" } as any)}
       />
+
+      {/* Full-screen scope-photo viewer — same behaviour as the approve/decline
+          screen. Tap the backdrop or the close button to dismiss. */}
+      <Modal
+        visible={lightboxUrl !== null}
+        transparent
+        statusBarTranslucent
+        animationType="fade"
+        onRequestClose={() => setLightboxUrl(null)}
+      >
+        <Pressable
+          style={styles.lightboxBackdrop}
+          onPress={() => setLightboxUrl(null)}
+        >
+          {lightboxUrl ? (
+            <Image
+              source={{ uri: lightboxUrl }}
+              style={styles.lightboxImage}
+              resizeMode="contain"
+            />
+          ) : null}
+          <View style={[styles.lightboxTopBar, { top: insets.top + Spacing.md }]}>
+            <Pressable
+              onPress={() => setLightboxUrl(null)}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel="Close photo"
+              style={styles.lightboxClose}
+            >
+              <X size={20} color="#FFFFFF" strokeWidth={2.5} />
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -1742,6 +1957,19 @@ const styles = StyleSheet.create({
   },
   backLabel: { color: BrandColors.primary, marginLeft: 2 },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  emptyText: {
+    textAlign: "center",
+    paddingHorizontal: Spacing.xl,
+    lineHeight: 22,
+  },
+  emptyCta: {
+    marginTop: Spacing.lg,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.md,
+    borderRadius: 12,
+    backgroundColor: SemanticColors.primaryBlue,
+  },
+  emptyCtaLabel: { color: "#FFFFFF" },
 
   // ── Hero ──────────────────────────────────────────────────────────────
   hero: {

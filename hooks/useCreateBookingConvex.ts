@@ -11,7 +11,7 @@
  * USED IN: Payment screen, confirmation flow
  */
 
-import { useAction, useMutation, useQuery } from "convex/react";
+import { useAction, useMutation, useQueries, useQuery, type RequestForQueries } from "convex/react";
 import { useCallback, useMemo } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -28,6 +28,9 @@ import { useShopStore } from "@/stores/useShopStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { displayTimeToHHMM } from "@/utils/timeSlotUtils";
+import { formatBookingError, readBookingError } from "@/convex/lib/bookingErrors";
+import type { ServerCheckoutLine } from "@/convex/lib/checkoutPrice";
+import { useShopFixedPricesForServices } from "./useShopFixedPricesForServices";
 
 const isLegacyTimeSlotId = (value: string | null | undefined): value is Id<"time_slots"> =>
   Boolean(value && !value.startsWith("computed:"));
@@ -39,29 +42,149 @@ type PreauthorizedPayment = {
   paymentOrigin?: "card" | "apple_pay" | "google_pay";
 };
 
+/**
+ * Everything the checkout derives its per-line price from, read from the same
+ * hooks Review & Pay renders. Shared by the create payload and the live price
+ * check on the confirm sheet (#390) so the labor the payload sends as
+ * `labor_cost` and the labor the snapshot/live check compare can't drift apart.
+ * `enabled: false` skips every query (the hooks' own skip patterns).
+ */
+function useCheckoutPricingSources(enabled = true) {
+  const getMechanicById = useMechanicStore((s) => s.getMechanicById);
+  const getShopById = useShopStore((s) => s.getShopById);
+  const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
+  const selectedVehicleVin = useBookingStore((s) => s.selectedVehicleVin);
+  const selectedMechanicId = useBookingStore((s) => s.selectedMechanicId);
+  const selectedMechanicSlot = useBookingStore((s) => s.selectedMechanicSlot);
+  const selectedServiceOptions = useBookingStore((s) => s.selectedServiceOptions);
+
+  // Resolve shopId: from selectedMechanicSlot or from selected mechanic's shop
+  const effectiveShopId =
+    selectedMechanicSlot?.shopId ?? (selectedMechanicId ? getMechanicById(selectedMechanicId)?.shopId : null);
+
+  const bookingVehicle = useVehicleStore((s) =>
+    selectedVehicleVin ? s.vehicles[selectedVehicleVin] : undefined,
+  );
+  const vehicleOwnershipId = enabled ? bookingVehicle?.ownershipId : undefined;
+  const queryServiceIds = enabled ? selectedServiceIds : EMPTY_IDS;
+
+  // Mirror ReviewPayContent: prefer vehicle-specific `labor_times.book_hours`
+  // over `services.default_labor_hours` so the booking row records the same
+  // hours (and therefore the same labor $) the customer just agreed to.
+  const { laborHours: laborHoursByService, isLoading: isLaborHoursLoading } =
+    useBookingLaborHours(vehicleOwnershipId, queryServiceIds);
+  const laborHoursMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const row of laborHoursByService) {
+      map.set(String(row.serviceId), row.hours);
+    }
+    return map;
+  }, [laborHoursByService]);
+
+  // Same priced-parts source ReviewPayContent uses; falls back to defaults
+  // for walk-in vehicles or mock svc_* ids via the hook's internal skip.
+  const { breakdown: pricedPartsByService, isLoading: isPricedPartsLoading } =
+    useBookingPartsBreakdown(vehicleOwnershipId, queryServiceIds, selectedServiceOptions);
+
+  const pricedPartsTotalMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const row of pricedPartsByService) {
+      if (row.partsTotal > 0) map.set(String(row.serviceId), row.partsTotal);
+    }
+    return map;
+  }, [pricedPartsByService]);
+
+  // Per-service axle/position picks (per_axle services), so the engine scales
+  // labor + parts to the same axles the customer picked on Review & Pay.
+  const servicePositions = useMemo(() => {
+    const rec: Record<string, "front" | "rear" | "both"> = {};
+    for (const sid of selectedServiceIds) {
+      const pos = positionFromOption(selectedServiceOptions[sid]);
+      if (pos === "front" || pos === "rear" || pos === "both") {
+        rec[String(sid)] = pos;
+      }
+    }
+    return rec;
+  }, [selectedServiceIds, selectedServiceOptions]);
+
+  // Tier-aware labor from the Pricing v2 engine — the SAME source
+  // ReviewPayContent renders and the SAME number the server bills. Submitting
+  // this (instead of flat shop.labor_rate × hours) is what stops the server's
+  // createBatch labor-cost guard from rejecting high-tier vehicles with
+  // LABOR_COST_TIER_MISMATCH. Keyed service id → labor $; refused/absent lines
+  // fall back to the flat computation below (which is exactly when the server
+  // also skips its cost check, so the two never disagree in a rejecting way).
+  const engineQuote = useBookingQuoteFallback(
+    enabled ? effectiveShopId : null,
+    vehicleOwnershipId,
+    queryServiceIds,
+    servicePositions,
+  );
+  const engineLaborCostMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const [sid, line] of engineQuote.byService) {
+      if (!line.refused && line.laborCost != null) {
+        map.set(String(sid), Math.max(0, line.laborCost));
+      }
+    }
+    return map;
+  }, [engineQuote.byService]);
+
+  /** Hours + labor $ for one line: engine tier labor when it priced the line,
+   *  else flat shop rate × (vehicle hours ?? default hours). */
+  const laborFor = useCallback(
+    (service: { id: string; default_labor_hours?: number | null }, laborRate: number) => {
+      const variantHours = laborHoursMap.get(String(service.id));
+      const hours = typeof variantHours === "number" ? variantHours : (service.default_labor_hours ?? 0);
+      const engineLabor = engineLaborCostMap.get(String(service.id));
+      return { hours, laborCost: engineLabor != null ? engineLabor : laborRate * hours };
+    },
+    [laborHoursMap, engineLaborCostMap],
+  );
+
+  return {
+    effectiveShopId,
+    getShopById,
+    selectedServiceIds,
+    selectedVehicleVin,
+    selectedMechanicId,
+    selectedMechanicSlot,
+    selectedServiceOptions,
+    bookingVehicle,
+    vehicleOwnershipId: bookingVehicle?.ownershipId,
+    laborFor,
+    engineLaborCostMap,
+    pricedPartsTotalMap,
+    isLoading: isLaborHoursLoading || isPricedPartsLoading || engineQuote.isLoading,
+  };
+}
+
+const EMPTY_IDS: string[] = [];
+
 export function useCreateBookingConvex() {
   const createBatch = useMutation(api.bookings.createBatch);
   const confirmPreauthorizedBatch = useAction(api.bookings.confirmPreauthorizedBatch);
   const toast = useToast();
   const { userId } = useUserFromConvex();
-  const getMechanicById = useMechanicStore((s) => s.getMechanicById);
-  const getShopById = useShopStore((s) => s.getShopById);
+  const {
+    effectiveShopId,
+    getShopById,
+    selectedServiceIds,
+    selectedVehicleVin,
+    selectedMechanicId,
+    selectedMechanicSlot,
+    selectedServiceOptions,
+    bookingVehicle,
+    laborFor,
+    pricedPartsTotalMap,
+  } = useCheckoutPricingSources();
 
-  const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
-  const selectedVehicleVin = useBookingStore((s) => s.selectedVehicleVin);
-  const selectedMechanicId = useBookingStore((s) => s.selectedMechanicId);
   const availableServices = useBookingStore((s) => s.availableServices);
-  const selectedMechanicSlot = useBookingStore((s) => s.selectedMechanicSlot);
   const scheduledAppointment = useBookingStore((s) => s.scheduledAppointment);
   const sourceRecommendationId = useBookingStore((s) => s.sourceRecommendationId);
   const setSourceRecommendationId = useBookingStore((s) => s.setSourceRecommendationId);
-  const selectedServiceOptions = useBookingStore((s) => s.selectedServiceOptions);
   const customerNotes = useBookingStore((s) => s.customerNotes);
   const selectedDiagnosticSystem = useBookingStore((s) => s.selectedDiagnosticSystem);
-
-  // Resolve shopId: from selectedMechanicSlot or from selected mechanic's shop
-  const effectiveShopId =
-    selectedMechanicSlot?.shopId ?? (selectedMechanicId ? getMechanicById(selectedMechanicId)?.shopId : null);
 
   const scheduledDate = scheduledAppointment?.date;
   const scheduledTimeHHMM = scheduledAppointment?.time ? displayTimeToHHMM(scheduledAppointment.time) : null;
@@ -97,78 +220,6 @@ export function useCreateBookingConvex() {
     },
     [selectedMechanicSlot?.timeSlotId, slotsForShopAndTime, selectedMechanicId],
   );
-
-  const bookingVehicle = useVehicleStore((s) =>
-    selectedVehicleVin ? s.vehicles[selectedVehicleVin] : undefined,
-  );
-  const vehicleOwnershipId = bookingVehicle?.ownershipId;
-
-  // Mirror ReviewPayContent: prefer vehicle-specific `labor_times.book_hours`
-  // over `services.default_labor_hours` so the booking row records the same
-  // hours (and therefore the same labor $) the customer just agreed to.
-  const { laborHours: laborHoursByService } = useBookingLaborHours(
-    vehicleOwnershipId,
-    selectedServiceIds,
-  );
-  const laborHoursMap = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const row of laborHoursByService) {
-      map.set(String(row.serviceId), row.hours);
-    }
-    return map;
-  }, [laborHoursByService]);
-
-  // Same priced-parts source ReviewPayContent uses; falls back to defaults
-  // for walk-in vehicles or mock svc_* ids via the hook's internal skip.
-  const { breakdown: pricedPartsByService } = useBookingPartsBreakdown(
-    vehicleOwnershipId,
-    selectedServiceIds,
-    selectedServiceOptions,
-  );
-
-  const pricedPartsTotalMap = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const row of pricedPartsByService) {
-      if (row.partsTotal > 0) map.set(String(row.serviceId), row.partsTotal);
-    }
-    return map;
-  }, [pricedPartsByService]);
-
-  // Per-service axle/position picks (per_axle services), so the engine scales
-  // labor + parts to the same axles the customer picked on Review & Pay.
-  const servicePositions = useMemo(() => {
-    const rec: Record<string, "front" | "rear" | "both"> = {};
-    for (const sid of selectedServiceIds) {
-      const pos = positionFromOption(selectedServiceOptions[sid]);
-      if (pos === "front" || pos === "rear" || pos === "both") {
-        rec[String(sid)] = pos;
-      }
-    }
-    return rec;
-  }, [selectedServiceIds, selectedServiceOptions]);
-
-  // Tier-aware labor from the Pricing v2 engine — the SAME source
-  // ReviewPayContent renders and the SAME number the server bills. Submitting
-  // this (instead of flat shop.labor_rate × hours) is what stops the server's
-  // createBatch labor-cost guard from rejecting high-tier vehicles with
-  // LABOR_COST_TIER_MISMATCH. Keyed service id → labor $; refused/absent lines
-  // fall back to the flat computation below (which is exactly when the server
-  // also skips its cost check, so the two never disagree in a rejecting way).
-  const engineQuote = useBookingQuoteFallback(
-    effectiveShopId,
-    vehicleOwnershipId,
-    selectedServiceIds,
-    servicePositions,
-  );
-  const engineLaborCostMap = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const [sid, line] of engineQuote.byService) {
-      if (!line.refused && line.laborCost != null) {
-        map.set(String(sid), Math.max(0, line.laborCost));
-      }
-    }
-    return map;
-  }, [engineQuote.byService]);
 
   const createBookingConvex = useCallback(
     async (
@@ -220,12 +271,9 @@ export function useCreateBookingConvex() {
       // stamps `fallback_catch` on `service_quote_flags` — we flag, we
       // don't substitute.
       const services = selectedServices.map((s) => {
-        const variantHours = laborHoursMap.get(String(s.id));
-        const hours = typeof variantHours === "number" ? variantHours : (s.default_labor_hours ?? 0);
         // Tier-aware engine labor when available; flat rate only as the
         // refuse/unenrolled fallback (server skips its check there too).
-        const engineLabor = engineLaborCostMap.get(String(s.id));
-        const laborCost = engineLabor != null ? engineLabor : laborRate * hours;
+        const { hours, laborCost } = laborFor(s, laborRate);
         const pricedParts = pricedPartsTotalMap.get(String(s.id));
         const partsCost = typeof pricedParts === "number" ? pricedParts : (s.default_parts_estimate ?? 0);
         return {
@@ -312,6 +360,11 @@ export function useCreateBookingConvex() {
       // server excludes this checkout's own hold from the availability check.
       const holdId = useBookingStore.getState().holdId;
       const holdSessionId = useBookingStore.getState().holdSessionId;
+      // #390: the price Review & Pay rendered when the customer tapped
+      // Authorize, captured there (payment.tsx) and sent verbatim — never
+      // rebuilt here, or it would equal the live price and defeat the check.
+      // No snapshot → omit, and the server books exactly as before.
+      const priceSnapshot = useBookingStore.getState().checkoutPriceSnapshot;
 
       let bookingIds: string[];
       try {
@@ -346,16 +399,30 @@ export function useCreateBookingConvex() {
                 payment_origin: preauthorizedPayment.paymentOrigin,
               }
             : undefined,
+          ...(priceSnapshot
+            ? {
+                expected_price: {
+                  ...priceSnapshot.price,
+                  lines: priceSnapshot.price.lines.map((line) => ({
+                    ...line,
+                    service_id: line.service_id as Id<"services">,
+                  })),
+                },
+              }
+            : {}),
         };
 
         bookingIds = await (preauthorizedPayment
           ? confirmPreauthorizedBatch(createBatchPayload)
           : createBatch(createBatchPayload));
       } catch (err) {
-        toast.error(
-          "Couldn't submit booking.",
-          "Try again.",
-        );
+        // Typed conflicts (PRICE_CHANGED, SERVICE_NOT_OFFERED, SLOT_*, …) are
+        // routed by the caller (confirming.tsx) into their own recovery UI —
+        // a generic toast on top would contradict it. Untyped failures keep
+        // the toast, with a readable sentence instead of a fixed "Try again".
+        if (!readBookingError(err)) {
+          toast.error("Couldn't submit booking.", formatBookingError(err, "Try again."));
+        }
         throw err;
       }
 
@@ -376,9 +443,8 @@ export function useCreateBookingConvex() {
       effectiveShopId,
       selectedServiceIds,
       availableServices,
-      laborHoursMap,
+      laborFor,
       pricedPartsTotalMap,
-      engineLaborCostMap,
       scheduledAppointment,
       getShopById,
       createBatch,
@@ -394,4 +460,153 @@ export function useCreateBookingConvex() {
   );
 
   return { createBookingConvex };
+}
+
+// ============================================================================
+// Live checkout checks shared by Review & Pay and the confirm sheet
+// ============================================================================
+
+const toCents = (dollars: number): number => Math.round(dollars * 100);
+
+/**
+ * The checkout's price per line RIGHT NOW, in the shape the server's
+ * `diffCheckoutPrice` compares (#390): the shop's set price when it has one,
+ * the labor this checkout would send, and the engine's labor. The confirm
+ * sheet diffs the Authorize-time snapshot against this to pause the auto-fire
+ * the moment a shop edit lands — the server re-checks at commit either way.
+ * `lines` is null while any source is loading or when disabled.
+ */
+export function useCheckoutLivePriceLines(enabled: boolean): {
+  lines: ServerCheckoutLine[] | null;
+} {
+  const {
+    effectiveShopId,
+    getShopById,
+    selectedServiceIds,
+    vehicleOwnershipId,
+    laborFor,
+    engineLaborCostMap,
+    pricedPartsTotalMap,
+    isLoading,
+  } = useCheckoutPricingSources(enabled);
+  const availableServices = useBookingStore((s) => s.availableServices);
+  const fixedPrices = useShopFixedPricesForServices(
+    enabled ? effectiveShopId : null,
+    vehicleOwnershipId,
+    selectedServiceIds,
+  );
+  const laborRate = effectiveShopId ? getShopById(effectiveShopId)?.labor_rate : undefined;
+
+  const lines = useMemo(() => {
+    if (!enabled || isLoading || fixedPrices.isLoading || laborRate == null) return null;
+    const services = availableServices.filter((s) => selectedServiceIds.includes(s.id));
+    return services.map((s): ServerCheckoutLine => {
+      const { laborCost } = laborFor(s, laborRate);
+      const shopPrice = fixedPrices.map.get(String(s.id));
+      const engineLabor = engineLaborCostMap.get(String(s.id));
+      const parts = pricedPartsTotalMap.get(String(s.id)) ?? s.default_parts_estimate ?? 0;
+      return {
+        serviceId: String(s.id),
+        shopPrice: shopPrice
+          ? { lowCents: toCents(shopPrice.lowDollars), highCents: toCents(shopPrice.highDollars) }
+          : null,
+        billedLaborCents: toCents(laborCost),
+        billedPartsCents: toCents(parts),
+        engineLaborCents: engineLabor != null ? toCents(engineLabor) : null,
+        engineLowCents: null,
+        engineHighCents: null,
+      };
+    });
+  }, [
+    enabled,
+    isLoading,
+    fixedPrices.isLoading,
+    fixedPrices.map,
+    laborRate,
+    availableServices,
+    selectedServiceIds,
+    laborFor,
+    engineLaborCostMap,
+    pricedPartsTotalMap,
+  ]);
+
+  return { lines };
+}
+
+export type CheckoutServiceGate = {
+  /** The shop can't book every service in the cart right now. */
+  blocked: boolean;
+  /** Server sentence for the banner (null when not blocked). */
+  message: string | null;
+  /** Cart service ids the shop won't book. */
+  blockedServiceIds: string[];
+  /** True only while the first answer is loading. */
+  isLoading: boolean;
+};
+
+/**
+ * Live Review & Pay / confirm gate (#404): can this shop book every service in
+ * the cart right now? Same predicate as the commit-time SERVICE_NOT_OFFERED
+ * guard, reactive to the shop's Settings → Services edits. Sends the same
+ * `source_recommendation_id` + VIN the create payload does, so the
+ * same-shop recommendation exemption matches the server. Uses `useQueries`
+ * so a query error reads as "not blocked" instead of throwing the screen —
+ * the server guard stays the authority.
+ */
+export function useCheckoutServiceGate(enabled: boolean): CheckoutServiceGate {
+  const getMechanicById = useMechanicStore((s) => s.getMechanicById);
+  const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
+  const selectedVehicleVin = useBookingStore((s) => s.selectedVehicleVin);
+  const selectedMechanicId = useBookingStore((s) => s.selectedMechanicId);
+  const selectedMechanicSlot = useBookingStore((s) => s.selectedMechanicSlot);
+  const sourceRecommendationId = useBookingStore((s) => s.sourceRecommendationId);
+  const shopId =
+    selectedMechanicSlot?.shopId ??
+    (selectedMechanicId ? getMechanicById(selectedMechanicId)?.shopId : null);
+  const canQuery = enabled && !!shopId && selectedServiceIds.length > 0;
+
+  const requests = useMemo(
+    () =>
+      canQuery
+        ? {
+            gate: {
+              query: api.shop_services.validateCheckoutServices,
+              args: {
+                shop_id: String(shopId),
+                service_ids: selectedServiceIds.map(String),
+                ...(sourceRecommendationId
+                  ? { source_recommendation_id: sourceRecommendationId }
+                  : {}),
+                ...(selectedVehicleVin ? { vin: selectedVehicleVin } : {}),
+              },
+            },
+          }
+        : {},
+    [canQuery, shopId, selectedServiceIds, sourceRecommendationId, selectedVehicleVin],
+  );
+  const results = useQueries(requests as RequestForQueries);
+  const result = canQuery ? results.gate : undefined;
+
+  return useMemo((): CheckoutServiceGate => {
+    if (!canQuery || result instanceof Error) {
+      return { blocked: false, message: null, blockedServiceIds: [], isLoading: false };
+    }
+    if (result === undefined) {
+      return { blocked: false, message: null, blockedServiceIds: [], isLoading: true };
+    }
+    const gate = result as {
+      ok: boolean;
+      blocked: { serviceId: string }[];
+      message: string | null;
+    };
+    if (gate.ok) {
+      return { blocked: false, message: null, blockedServiceIds: [], isLoading: false };
+    }
+    return {
+      blocked: true,
+      message: gate.message ?? "The shop no longer offers one of these services.",
+      blockedServiceIds: gate.blocked.map((b) => String(b.serviceId)),
+      isLoading: false,
+    };
+  }, [canQuery, result]);
 }

@@ -15,6 +15,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Dimensions,
   Platform,
   Pressable,
@@ -34,7 +35,6 @@ import {
   type LucideIcon,
 } from "lucide-react-native";
 
-import { categoryTitleTransition } from "@/components/booking-flow/CategoryListRow";
 import { FlyToCartGhost } from "@/components/booking-flow/FlyToCartGhost";
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
@@ -52,6 +52,8 @@ import {
 import { ServiceMultiSelectRow } from "@/components/booking-flow/ServiceMultiSelectRow";
 import { StickyContinueBar } from "@/components/booking-flow/StickyContinueBar";
 import { routeToNextBookingStep } from "@/lib/bookingFlowNext";
+import { dropServicesShopDoesntOffer } from "@/lib/pinnedShopCart";
+import { droppedServicesToast } from "@/lib/shopServiceCoverage";
 import { VehiclePuck } from "@/components/booking-flow/VehiclePuck";
 import { PackageQuestionsSheet } from "@/components/cars/PackageQuestionsSheet";
 import { DiagnosticOptionsSheet } from "@/components/booking/sheets/DiagnosticOptionsSheet";
@@ -76,6 +78,16 @@ import { useBookingStore } from "@/stores/useBookingStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { useShopStore } from "@/stores/useShopStore";
 import { hasConsistentBasketVehicle } from "@/utils/bookingVehicle";
+import { CoachTarget } from "@/components/coach/CoachTarget";
+import { useSatisfyCoachMark } from "@/components/coach/CoachMarkHost";
+
+/**
+ * How long a service ignores further taps after one is acted on.
+ *
+ * Long enough to outlast the fly-to-cart flight and the sheet transitions, so
+ * a burst of taps reads as one decision.
+ */
+const SERVICE_TAP_COOLDOWN_MS = 600;
 
 // Fixed-height frosted sheet — content scrolls inside, sheet itself
 // doesn't move. Mirrors Screen 1 (select-services.tsx). Previously a
@@ -94,9 +106,8 @@ const FAB_SIZE = 56;
 const FAB_RIGHT_INSET = 16;
 const FAB_BOTTOM_ABOVE_INSETS = 96;
 
-// Same icon mapping as CategoryListRow so the shared-element
-// morph between Screen 1's row and Screen 2's header lands on a
-// matching glyph.
+// Same icon mapping as CategoryListRow so the row and this header
+// show the same glyph for a tab.
 const TAB_ICONS: Record<TaxonomyTab, LucideIcon> = {
   routine_upkeep: Wrench,
   tires_brakes: CircleDot,
@@ -112,6 +123,7 @@ const VALID_TABS = new Set<TaxonomyTab>([
 ]);
 
 export default function CategoryDetailScreen() {
+
   const router = useRouter();
   const insets = useSafeAreaInsets();
   // The sheet is bottom-anchored at 92% height, so its top edge lands
@@ -167,13 +179,23 @@ export default function CategoryDetailScreen() {
   //      so the user can't pick something unbookable here.
   const preSelectedShopId = useBookingStore((s) => s.preSelectedShopId);
   const toast = useToast();
-  const getShopById = useShopStore((s) => s.getShopById);
+  // Subscribe to the pinned shop OBJECT, not the stable `getShopById`
+  // (bug #404): with the getter as the only memo dep, the offered set was
+  // computed once — before hydration it was null ("everything allowed") and
+  // it never picked up a portal toggle afterwards. The shop row is replaced
+  // whenever useShopsFromConvex re-derives, so this follows both.
+  const pinnedShop = useShopStore((s) =>
+    preSelectedShopId ? s.shops[preSelectedShopId] : undefined,
+  );
+  const shopsHydrated = useShopStore((s) => s.shopIds.length > 0);
+  // Pinned but not in the store yet → loading, never "offers everything".
+  // Once the store has hydrated, a pinned shop that's still missing isn't
+  // bookable at all (shops.list drops it), so it offers nothing here.
+  const pinnedShopLoading = !!preSelectedShopId && !pinnedShop && !shopsHydrated;
   const shopServiceIdSet = useMemo(() => {
     if (!preSelectedShopId) return null;
-    const shop = getShopById(preSelectedShopId);
-    if (!shop) return null;
-    return new Set(shop.serviceIds);
-  }, [preSelectedShopId, getShopById]);
+    return new Set(pinnedShop?.serviceIds ?? []);
+  }, [preSelectedShopId, pinnedShop]);
 
   const handleContinue = useCallback(() => {
     if (!hasConsistentBasketVehicle({
@@ -186,6 +208,18 @@ export default function CategoryDetailScreen() {
         "Please select services for one vehicle before continuing.",
       );
       return;
+    }
+
+    // Services picked before the shop was pinned (or before it switched one
+    // off) would ride straight to its date picker — drop them and say which
+    // (bug #404). An emptied cart stays here to pick something it offers.
+    if (preSelectedShopId) {
+      const cart = dropServicesShopDoesntOffer(preSelectedShopId);
+      if (cart.status === "checked" && cart.droppedNames.length > 0) {
+        const copy = droppedServicesToast(cart.shopName, cart.droppedNames);
+        toast.warning(copy.title, copy.body);
+        if (cart.remainingCount === 0) return;
+      }
     }
 
     routeToNextBookingStep(router, preSelectedShopId);
@@ -207,6 +241,11 @@ export default function CategoryDetailScreen() {
   const [diagnosticServiceId, setDiagnosticServiceId] = useState<string | null>(null);
 
   // Vehicle context
+  // The hint says "tap a service to add it". The moment one is in the cart
+  // it has been read and acted on, so it retires itself rather than waiting
+  // for a "Got it" the driver has already earned.
+  useSatisfyCoachMark("book_services_detail", selectedServiceIds.length > 0);
+
   const selectedVehicle = useVehicleStore((s) => s.getSelectedVehicle());
   const engineId = selectedVehicle?.engineId;
   const ownershipId = selectedVehicle?.ownershipId;
@@ -286,13 +325,38 @@ export default function CategoryDetailScreen() {
     [insets.bottom],
   );
 
+  /**
+   * Services whose add is mid-flight.
+   *
+   * The store toggle is deferred until the ghost lands, so
+   * `selectedServiceIds` does NOT contain the service during the flight. A
+   * second tap in that window therefore still sees `isSelected === false`,
+   * spawns another ghost and queues a SECOND toggle — and the pair cancels
+   * out, leaving the row unselected.
+   *
+   * That is both halves of the report: ghosts piling up reads as the card
+   * being added over and over, and an even number of quick taps nets to
+   * nothing, so the card "needs several taps before it registers".
+   */
+  const pendingAddRef = useRef<Set<string>>(new Set());
+
   const flyToCart = useCallback(
     (serviceId: string, slug: string, label: string, onCommit?: () => void) => {
+      // One flight per service. Guarded here rather than at the call sites so
+      // a future caller cannot reintroduce the double-toggle by forgetting.
+      if (pendingAddRef.current.has(serviceId)) return;
+      pendingAddRef.current.add(serviceId);
+
+      const settle = () => {
+        pendingAddRef.current.delete(serviceId);
+        onCommit?.();
+      };
+
       const rowNode = rowRefs.current.get(serviceId);
       // No row → skip the animation and commit immediately so the
       // cart still updates (belt-and-suspenders for the caller).
       if (!rowNode) {
-        onCommit?.();
+        settle();
         return;
       }
       rowNode.measureInWindow((rx, ry, rw, rh) => {
@@ -305,7 +369,7 @@ export default function CategoryDetailScreen() {
             label,
             from: { x: rx, y: ry, w: rw, h: rh },
             to: fabCenter,
-            onCommit,
+            onCommit: settle,
           },
         ]);
       });
@@ -359,15 +423,16 @@ export default function CategoryDetailScreen() {
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
     // Shop-pinned flow: hide services the picked shop doesn't cover
     // so the user can't pick something they won't be able to book.
-    // Guard on serviceIds.length > 0 — an empty array usually means
-    // the shop's catalog hasn't been hydrated yet, NOT that it
-    // offers nothing. Filtering on an empty set would hide
-    // everything and brick the screen.
-    if (shopServiceIdSet && shopServiceIdSet.size > 0) {
+    // An unhydrated shop renders as loading (spinner below) rather than
+    // failing open to the whole catalog (bug #404). A hydrated shop's
+    // serviceIds comes from the same query as the shop row itself, so
+    // an empty set there really does mean "offers nothing".
+    if (pinnedShopLoading) return [] as Service[];
+    if (shopServiceIdSet) {
       list = list.filter((s) => shopServiceIdSet.has(s.id));
     }
     return list;
-  }, [tabKey, availableServices, selectedVehicle, engineSpecs, shopServiceIdSet]);
+  }, [tabKey, availableServices, selectedVehicle, engineSpecs, shopServiceIdSet, pinnedShopLoading]);
 
   // Bookable list — what renders in the main list. Intersects the
   // base with `applicableIds` from the coverage query (which already
@@ -439,9 +504,30 @@ export default function CategoryDetailScreen() {
   }, [focusSlug, filteredServices]);
 
   // Tap handler — slug routing matches the v5 grid + Screen 1 entries
+  /**
+   * One action per service per burst.
+   *
+   * #239 stopped a second ghost spawning mid-flight, but the guard released
+   * the moment the ghost landed — so a tap arriving just after commit saw
+   * isSelected === true and REMOVED the service again. Four fast taps ended
+   * with nothing in the cart, which is #256: "every rapid tap re-triggers the
+   * action".
+   *
+   * A short per-service cooldown covers every branch below — direct add,
+   * remove, the options sheet and the diagnostic sheet — rather than only the
+   * animated one. Keyed per service so tapping two different rows quickly is
+   * still two adds.
+   */
+  const lastServiceActionRef = useRef<Map<string, number>>(new Map());
+
   const handleServicePress = useCallback(
     (service: Service) => {
       if (!service.slug) return;
+
+      const now = Date.now();
+      const last = lastServiceActionRef.current.get(service.id) ?? 0;
+      if (now - last < SERVICE_TAP_COOLDOWN_MS) return;
+      lastServiceActionRef.current.set(service.id, now);
 
       if (service.slug === SLUG_TIRE_REPLACEMENT) {
         router.push("/(tire-booking)");
@@ -606,19 +692,13 @@ export default function CategoryDetailScreen() {
                 <View style={styles.headerTitleRow}>
                   <Animated.View
                     style={styles.headerIconTile}
-                    sharedTransitionTag={`cat-icon-${tabKey}`}
-                    sharedTransitionStyle={categoryTitleTransition}
                   >
                     {(() => {
                       const Icon = TAB_ICONS[tabKey];
                       return <Icon size={22} color="#4B5563" strokeWidth={2} />;
                     })()}
                   </Animated.View>
-                  <Animated.Text
-                    sharedTransitionTag={`cat-title-${tabKey}`}
-                    sharedTransitionStyle={categoryTitleTransition}
-                    style={styles.titleTarget}
-                  >
+                  <Animated.Text style={styles.titleTarget}>
                     {tab.label}
                   </Animated.Text>
                 </View>
@@ -637,7 +717,7 @@ export default function CategoryDetailScreen() {
             <PinnedShopChip />
 
             <View style={styles.list}>
-              {filteredServices.map((svc) => {
+              {filteredServices.map((svc, svcIdx) => {
                 const slug = svc.slug;
                 if (!slug) return null;
                 const entry = TAXONOMY[slug];
@@ -661,7 +741,7 @@ export default function CategoryDetailScreen() {
                   ? `About ${carDuration}`
                   : (entry.estTimeLabel ?? "");
 
-                return (
+                const row = (
                   <ServiceMultiSelectRow
                     key={svc.id}
                     slug={slug}
@@ -677,9 +757,34 @@ export default function CategoryDetailScreen() {
                     }}
                   />
                 );
+
+                // The coach hint points at ONE row, not the list. The list is
+                // as tall as the tab has services — on Scheduled service that
+                // is the whole screen, and a hole that size highlights
+                // everything and therefore nothing. One row shows the tap
+                // target and the "?" in the same breath.
+                return svcIdx === 0 ? (
+                  <CoachTarget
+                    key={svc.id}
+                    id="booking.serviceList"
+                    radius={18}
+                    insetX={20}
+                    // The row owns a 12pt marginBottom; without trimming it the
+                    // hole hangs into the gap and clips the next row's top.
+                    insetBottom={12}
+                  >
+                    {row}
+                  </CoachTarget>
+                ) : (
+                  row
+                );
               })}
 
-              {filteredServices.length === 0 ? (
+              {pinnedShopLoading ? (
+                <View style={styles.empty}>
+                  <ActivityIndicator color="#9CA3AF" />
+                </View>
+              ) : filteredServices.length === 0 ? (
                 <View style={styles.empty}>
                   <Text size="md" weight="medium" color="#9CA3AF" center>
                     No services available for this tab right now.

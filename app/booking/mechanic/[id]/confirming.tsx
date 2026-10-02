@@ -15,8 +15,8 @@
  * USED IN: payment screen's `handleConfirmPayment` flow.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import { BackHandler, Platform, StyleSheet, View, useWindowDimensions, type DimensionValue } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Alert, BackHandler, Platform, StyleSheet, View, useWindowDimensions } from "react-native";
 
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
@@ -29,14 +29,15 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { useAction, useMutation } from "convex/react";
+import { useAction, useMutation, useQueries, type RequestForQueries } from "convex/react";
 import type { FunctionReference } from "convex/server";
 import { useStripe } from "@stripe/stripe-react-native";
 
 import { Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { BookingConfirmStatus } from "@/components/booking/BookingConfirmStatus";
-import { useCreateBookingConvex } from "@/hooks/useCreateBookingConvex";
+import { useCheckoutServiceGate, useCreateBookingConvex } from "@/hooks/useCreateBookingConvex";
+import { useSlotHoldHeartbeat } from "@/hooks/useSlotHoldHeartbeat";
 import { useToast } from "@/hooks/useToast";
 import { CalendarClock } from "lucide-react-native";
 import { calculateBookingConfirmLayout } from "@/lib/bookingConfirmSheet";
@@ -46,8 +47,10 @@ import { useMechanicStore } from "@/stores/useMechanicStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
 import { resolveBookingVehicleVin } from "@/utils/bookingVehicle";
 import { displayTimeToHHMM } from "@/utils/timeSlotUtils";
+import { readQuoteUnavailableReason } from "@/utils/quoteAvailability";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { formatBookingError, readBookingError } from "@/convex/lib/bookingErrors";
 
 // Copy fade-in is gated to the same landing moment as the tire flow so
 // the timing reads consistently across both surfaces.
@@ -63,6 +66,14 @@ type AcceptQuoteArgs<ResponseTable extends "tire_quote_responses" | "rotor_quote
   mechanic_id?: Id<"mechanics">;
   hold_id?: Id<"slot_holds">;
   session_id?: string;
+  /** The $20 deposit just authorized for this accept, so the server records
+   *  it on the booking instead of the orphan reaper voiding it (#393). */
+  preauthorized_payment?: {
+    stripe_payment_intent_id: string;
+    idempotency_key: string;
+    hold_amount_cents: number;
+    payment_origin?: "card" | "apple_pay" | "google_pay";
+  };
 };
 
 const acceptTireQuoteWithHold = api.bookings.acceptTireQuote as FunctionReference<
@@ -79,23 +90,30 @@ const acceptRotorQuoteWithHold = api.bookings.acceptRotorQuote as FunctionRefere
   Id<"bookings">
 >;
 
-/** Strip the Convex error wrapper down to the human-readable message. */
-function extractErrorMessage(err: unknown): string {
-  if (!(err instanceof Error)) return "Something went wrong. Please try again.";
-  const raw = err.message;
-  const m = raw.match(/(?:Uncaught\s+)?Error:\s*([^\n]+)/i);
-  if (m && m[1]) return m[1].trim();
-  return raw
-    .replace(/\[CONVEX[^\]]*\]\s*/gi, "")
-    .replace(/\[Request ID:[^\]]*\]\s*/gi, "")
-    .replace(/\n\s*at\s+.*/g, "")
-    .replace(/\n\s*Called by client.*/g, "")
-    .trim() || "Something went wrong. Please try again.";
+const GENERIC_ERROR = "Something went wrong. Please try again.";
+
+const formatCents = (cents: unknown): string | null =>
+  typeof cents === "number" && Number.isFinite(cents) ? `$${(cents / 100).toFixed(2)}` : null;
+
+/** "$85.00" or "$85.00 – $150.00" from a PRICE_CHANGED payload's totals. */
+function formatCentsRange(low: unknown, high: unknown): string | null {
+  const lo = formatCents(low);
+  const hi = formatCents(high);
+  if (!lo || !hi) return lo ?? hi;
+  return lo === hi ? lo : `${lo} – ${hi}`;
 }
 
 export default function BookingConfirmingScreen() {
   const router = useRouter();
-  const { id, mode, bookingDbId, paymentMode } = useLocalSearchParams<{
+  const {
+    id,
+    mode,
+    bookingDbId,
+    paymentMode,
+    expectedStatus: expectedStatusParam,
+    expectedScheduledDate: expectedDateParam,
+    expectedScheduledTime: expectedTimeParam,
+  } = useLocalSearchParams<{
     id: string;
     mode?: string;
     bookingDbId?: string;
@@ -103,6 +121,12 @@ export default function BookingConfirmingScreen() {
      *  payment screen — sources the PM from `selectedWalletPm` instead of
      *  the saved-cards list and tags the payments row with the origin. */
     paymentMode?: string;
+    /** Reschedule only (#403): the booking's status / date / time as the
+     *  card showed them when the customer started rescheduling. Optional —
+     *  when absent, the first value this screen loads is used. */
+    expectedStatus?: string;
+    expectedScheduledDate?: string;
+    expectedScheduledTime?: string;
   }>();
   const sheetRef = useRef<FloatingSheetRef>(null);
   const { width: windowWidth, height: windowHeight } = useWindowDimensions();
@@ -117,6 +141,9 @@ export default function BookingConfirmingScreen() {
   const holdId = useBookingStore((s) => s.holdId);
   const holdSessionId = useBookingStore((s) => s.holdSessionId);
   const setQuoteAcceptContext = useBookingStore((s) => s.setQuoteAcceptContext);
+  const setSlotHold = useBookingStore((s) => s.setSlotHold);
+  const removeSelectedServices = useBookingStore((s) => s.removeSelectedServices);
+  const setCheckoutPriceChange = useBookingStore((s) => s.setCheckoutPriceChange);
   const getMechanicById = useMechanicStore((s) => s.getMechanicById);
   const selectedPaymentMethodId = usePaymentStore((s) => s.selectedPaymentMethodId);
   const selectedWalletPm = usePaymentStore((s) => s.selectedWalletPm);
@@ -128,6 +155,7 @@ export default function BookingConfirmingScreen() {
   const rollbackFailedBookingCreation = useMutation(api.bookings.rollbackFailedBookingCreation);
   const acceptTireQuote = useMutation(acceptTireQuoteWithHold);
   const acceptRotorQuote = useMutation(acceptRotorQuoteWithHold);
+  const releaseSlotHold = useMutation(api.slotHolds.releaseSlotHold);
   const toast = useToast();
   // The PaymentIntent is created + confirmed server-side. If 3DS is needed,
   // Stripe returns requires_action and the client *finishes* the challenge
@@ -149,6 +177,176 @@ export default function BookingConfirmingScreen() {
     width: windowWidth,
     height: windowHeight,
   });
+  const isNewCheckout = !isReschedule && !quoteAcceptContext;
+
+  // ── Hold heartbeat (#393) ─────────────────────────────────────────────
+  // Review & Pay's heartbeat pauses while this screen is on top, so keep the
+  // leased hold alive here until the commit starts (the commit consumes it).
+  // A lease that lapsed is re-held silently; only a failed re-hold bounces
+  // back to Review & Pay's "Session expired" prompt.
+  const submittingRef = useRef(false);
+  submittingRef.current = submitting;
+  const handleHoldLost = useCallback(() => {
+    if (navigatedRef.current || submittingRef.current) return;
+    navigatedRef.current = true;
+    router.replace({
+      pathname: "/booking/mechanic/[id]/payment",
+      params: { id, sessionExpired: "1" },
+    });
+  }, [router, id]);
+  useSlotHoldHeartbeat(holdId, holdSessionId, {
+    enabled: isNewCheckout && !submitting,
+    onExpired: handleHoldLost,
+  });
+
+  // ── Live service gate (#404) ──────────────────────────────────────────
+  // Same gate as Review & Pay: if the shop turns a cart service off while
+  // the countdown runs, stop it and offer to drop the service. Loading or a
+  // query error never blocks — the commit-time guard is the authority.
+  const serviceGate = useCheckoutServiceGate(isNewCheckout);
+  const handleRemoveBlockedServices = useCallback(() => {
+    removeSelectedServices(serviceGate.blockedServiceIds);
+    if (useBookingStore.getState().selectedServiceIds.length === 0) {
+      if (navigatedRef.current) return;
+      navigatedRef.current = true;
+      router.replace("/(booking-flow)/choose-mechanic");
+      return;
+    }
+    // Back to Review & Pay to see the new total before confirming again.
+    sheetRef.current?.close();
+  }, [removeSelectedServices, serviceGate.blockedServiceIds, router]);
+
+  // ── Reschedule watch (#403) ───────────────────────────────────────────
+  // The reschedule fires on a countdown; if the booking moves under it (shop
+  // started the job, checked the car in, someone else rescheduled or
+  // cancelled), stop the auto-fire and say why. useQueries so a query error
+  // degrades to "not blocked" — the mutation's expected* guard still holds.
+  const rescheduleQueries = useMemo(
+    () =>
+      isReschedule && bookingDbId
+        ? {
+            actions: {
+              query: api.bookings.getCustomerBookingActions,
+              args: { bookingId: bookingDbId as Id<"bookings"> },
+            },
+            booking: {
+              query: api.bookings.getBookingByIdForCustomer,
+              args: { bookingId: bookingDbId as Id<"bookings"> },
+            },
+          }
+        : {},
+    [isReschedule, bookingDbId],
+  );
+  const rescheduleResults = useQueries(rescheduleQueries as RequestForQueries);
+  const rescheduleActions = rescheduleResults.actions as
+    | {
+        status: string;
+        canReschedule: boolean;
+        rescheduleBlockedReason: { code: string; message: string } | null;
+      }
+    | null
+    | undefined
+    | Error;
+  const rescheduleBookingRow = rescheduleResults.booking as
+    | { status: string; scheduledDate?: string; scheduledTime?: string }
+    | null
+    | undefined
+    | Error;
+  // What the customer was looking at when they started: route params when
+  // the entry point passes them, else the first booking row this screen sees.
+  const [rescheduleExpected, setRescheduleExpected] = useState<{
+    status?: string;
+    date?: string;
+    time?: string;
+  } | null>(() =>
+    expectedStatusParam || expectedDateParam || expectedTimeParam
+      ? {
+          status: expectedStatusParam || undefined,
+          date: expectedDateParam || undefined,
+          time: expectedTimeParam || undefined,
+        }
+      : null,
+  );
+  useEffect(() => {
+    if (rescheduleExpected || !rescheduleBookingRow || rescheduleBookingRow instanceof Error) return;
+    setRescheduleExpected({
+      status: rescheduleBookingRow.status,
+      date: rescheduleBookingRow.scheduledDate,
+      time: rescheduleBookingRow.scheduledTime,
+    });
+  }, [rescheduleExpected, rescheduleBookingRow]);
+
+  const rescheduleLoading =
+    isReschedule &&
+    !!bookingDbId &&
+    (rescheduleActions === undefined || rescheduleBookingRow === undefined);
+  const rescheduleBlockMessage = useMemo((): string | null => {
+    if (!isReschedule || !bookingDbId) return null;
+    if (rescheduleBookingRow === null || rescheduleActions === null) {
+      return "We couldn't find that booking. It may have been cancelled or removed.";
+    }
+    if (
+      rescheduleActions &&
+      !(rescheduleActions instanceof Error) &&
+      rescheduleActions.canReschedule === false
+    ) {
+      return (
+        rescheduleActions.rescheduleBlockedReason?.message ??
+        "This booking can't be rescheduled here any more. Message the shop to change your appointment."
+      );
+    }
+    if (
+      rescheduleExpected &&
+      rescheduleBookingRow &&
+      !(rescheduleBookingRow instanceof Error) &&
+      ((rescheduleExpected.status != null && rescheduleBookingRow.status !== rescheduleExpected.status) ||
+        (rescheduleExpected.date != null &&
+          rescheduleBookingRow.scheduledDate !== rescheduleExpected.date) ||
+        (rescheduleExpected.time != null &&
+          rescheduleBookingRow.scheduledTime !== rescheduleExpected.time))
+    ) {
+      return "This booking just changed. Take another look and try again.";
+    }
+    return null;
+  }, [isReschedule, bookingDbId, rescheduleActions, rescheduleBookingRow, rescheduleExpected]);
+
+  const handleBackToBookings = useCallback(() => {
+    if (navigatedRef.current) return;
+    navigatedRef.current = true;
+    router.replace("/(main-tabs)/bookings");
+  }, [router]);
+
+  const confirmBlocker = useMemo(() => {
+    if (rescheduleBlockMessage) {
+      return {
+        message: rescheduleBlockMessage,
+        actionLabel: "Back to bookings",
+        onAction: handleBackToBookings,
+      };
+    }
+    if (serviceGate.blocked && serviceGate.message) {
+      return {
+        message: serviceGate.message,
+        actionLabel:
+          serviceGate.blockedServiceIds.length === 1
+            ? "Remove it from this booking"
+            : "Remove them from this booking",
+        onAction: handleRemoveBlockedServices,
+      };
+    }
+    return null;
+  }, [
+    rescheduleBlockMessage,
+    handleBackToBookings,
+    serviceGate.blocked,
+    serviceGate.message,
+    serviceGate.blockedServiceIds.length,
+    handleRemoveBlockedServices,
+  ]);
+  // Read at fire time: the countdown can't commit past a blocker that
+  // appeared after its last render.
+  const blockedRef = useRef(false);
+  blockedRef.current = confirmBlocker != null || rescheduleLoading;
 
   // Open the sheet on mount, same shape as the tire-quote requesting flow.
   // Wallet flow gets the same countdown sheet as the card flow so the user
@@ -203,6 +401,7 @@ export default function BookingConfirmingScreen() {
 
   const handleConfirm = useCallback(async () => {
     if (submitting || navigatedRef.current) return;
+    if (blockedRef.current) return;
     if (isReschedule) {
       if (!bookingDbId) {
         navigatedRef.current = true;
@@ -226,6 +425,10 @@ export default function BookingConfirmingScreen() {
           ...(selectedMechanicSlot.mechanicId
             ? { newMechanicId: selectedMechanicSlot.mechanicId as Id<"mechanics"> }
             : {}),
+          // Stale-view guard (#403): what the customer was looking at.
+          ...(rescheduleExpected?.status ? { expectedStatus: rescheduleExpected.status } : {}),
+          ...(rescheduleExpected?.date ? { expectedScheduledDate: rescheduleExpected.date } : {}),
+          ...(rescheduleExpected?.time ? { expectedScheduledTime: rescheduleExpected.time } : {}),
         });
         if (navigatedRef.current) return;
         navigatedRef.current = true;
@@ -241,9 +444,46 @@ export default function BookingConfirmingScreen() {
       } catch (err) {
         if (navigatedRef.current) return;
         navigatedRef.current = true;
+        const code = readBookingError(err)?.code;
+        const message = formatBookingError(
+          err,
+          "Couldn't request reschedule. Please try again in a moment.",
+        );
+        if (
+          code === "JOB_ALREADY_STARTED" ||
+          code === "VEHICLE_CHECKED_IN" ||
+          code === "RESCHEDULE_LIMIT_REACHED"
+        ) {
+          // Only the shop can move it now — offer the conversation.
+          Alert.alert("Can't reschedule here", message, [
+            {
+              text: "Message the shop",
+              onPress: () =>
+                router.replace({
+                  pathname: "/(main-tabs)/bookings",
+                  params: { bookingId: bookingDbId, openChat: "1" },
+                }),
+            },
+            {
+              text: "OK",
+              style: "cancel",
+              onPress: () => router.replace("/(main-tabs)/bookings"),
+            },
+          ]);
+          return;
+        }
+        if (code === "SLOT_UNAVAILABLE" || code === "OUTSIDE_SHOP_HOURS" || code === "INVALID_TIME") {
+          // The time is the problem, not the booking: back to the picker.
+          toast.warning(message);
+          if (router.canGoBack()) router.back();
+          else router.replace({ pathname: "/(main-tabs)/bookings", params: { rescheduleError: message } });
+          return;
+        }
+        // BOOKING_STATE_CHANGED / BOOKING_ALREADY_CANCELLED / anything else:
+        // close and let the refreshed card show where the booking stands.
         router.replace({
           pathname: "/(main-tabs)/bookings",
-          params: { rescheduleError: extractErrorMessage(err) },
+          params: { rescheduleError: message },
         });
       }
       return;
@@ -279,6 +519,93 @@ export default function BookingConfirmingScreen() {
       return;
     }
     const paymentOrigin = isWalletFlow ? selectedWalletPm?.type : "card";
+    // Route a failed commit by code (#390 / #393 / #404) BEFORE falling back
+    // to Review & Pay's generic error modal. The $20 PI is already voided.
+    const routeCheckoutFailure = (
+      err: unknown,
+      conflict: ReturnType<typeof readBookingError>,
+      message: string,
+      failedShopId: string,
+    ) => {
+      const code = conflict?.code;
+      if (quoteAcceptContext) {
+        const quoteReason = readQuoteUnavailableReason(err);
+        if (quoteReason) {
+          setQuoteAcceptContext(null);
+          router.replace({
+            pathname: "/(main-tabs)/bookings",
+            params: { tab: "quotes", quoteUnavailable: quoteReason },
+          });
+          return;
+        }
+        if (code === "SERVICE_NOT_OFFERED") {
+          // The shop stopped offering the quoted service: back to the quotes.
+          setQuoteAcceptContext(null);
+          toast.warning(message);
+          router.replace({ pathname: "/(main-tabs)/bookings", params: { tab: "quotes" } });
+          return;
+        }
+      }
+      if (code === "PRICE_CHANGED" && conflict) {
+        const snapshot = useBookingStore.getState().checkoutPriceSnapshot;
+        setCheckoutPriceChange({
+          message,
+          previousFormatted:
+            snapshot?.formatted ??
+            formatCentsRange(conflict.previousTotalLowCents, conflict.previousTotalHighCents),
+          newFormatted: formatCentsRange(conflict.newTotalLowCents, conflict.newTotalHighCents),
+        });
+        router.replace({ pathname: "/booking/mechanic/[id]/payment", params: { id } });
+        return;
+      }
+      if (code === "SERVICE_NOT_OFFERED" && conflict) {
+        const dropIds = Array.isArray(conflict.serviceIds)
+          ? conflict.serviceIds.map((sid) => String(sid))
+          : [];
+        if (dropIds.length > 0) removeSelectedServices(dropIds);
+        if (useBookingStore.getState().selectedServiceIds.length === 0) {
+          toast.warning(message);
+          router.replace("/(booking-flow)/choose-mechanic");
+          return;
+        }
+        router.replace({
+          pathname: "/booking/mechanic/[id]/payment",
+          params: { id, confirmError: message },
+        });
+        return;
+      }
+      if (
+        code === "SLOT_UNAVAILABLE" ||
+        code === "OUTSIDE_SHOP_HOURS" ||
+        code === "SLOT_HOLD_EXPIRED" ||
+        code === "CHECKOUT_EXPIRED"
+      ) {
+        // The time is gone (or this checkout ran out): pick a new one. The
+        // next /confirming mount mints a fresh attempt id, so a
+        // CHECKOUT_EXPIRED PaymentIntent is never retried.
+        const { holdId: staleHoldId, holdSessionId: staleSession } = useBookingStore.getState();
+        if (staleHoldId && staleSession) {
+          releaseSlotHold({
+            holdId: staleHoldId as Id<"slot_holds">,
+            session_id: staleSession,
+          }).catch(() => {});
+        }
+        setSlotHold(null);
+        toast.warning(message);
+        router.replace({
+          pathname: "/(booking-flow)/pick-datetime",
+          params: {
+            shopId: failedShopId,
+            ...(selectedMechanicId ? { mechanicId: selectedMechanicId } : {}),
+          },
+        });
+        return;
+      }
+      router.replace({
+        pathname: "/booking/mechanic/[id]/payment",
+        params: { id, confirmError: message },
+      });
+    };
     setSubmitting(true);
     let preauthorizedPaymentIntentId: string | null = null;
     let createdBookingId: Id<"bookings"> | null = null;
@@ -318,6 +645,18 @@ export default function BookingConfirmingScreen() {
         const mechanicIdArg = selectedMechanicSlot?.mechanicId
           ? (selectedMechanicSlot.mechanicId as Id<"mechanics">)
           : undefined;
+        // Link the $20 deposit to the booking in the accept itself, like
+        // every other flow — otherwise the orphan reaper voids it (#393).
+        const quoteOrigin: "card" | "apple_pay" | "google_pay" | undefined =
+          paymentOrigin === "card" || paymentOrigin === "apple_pay" || paymentOrigin === "google_pay"
+            ? paymentOrigin
+            : undefined;
+        const quotePreauth = {
+          stripe_payment_intent_id: preauth.paymentIntentId,
+          idempotency_key: preauth.idempotencyKey,
+          hold_amount_cents: preauth.holdAmountCents,
+          ...(quoteOrigin ? { payment_origin: quoteOrigin } : {}),
+        };
         resultBookingId =
           quoteAcceptContext.quoteType === "rotor"
             ? await acceptRotorQuote({
@@ -329,6 +668,7 @@ export default function BookingConfirmingScreen() {
                 mechanic_id: mechanicIdArg,
                 hold_id: holdId ? (holdId as Id<"slot_holds">) : undefined,
                 session_id: holdSessionId ?? undefined,
+                preauthorized_payment: quotePreauth,
               })
             : await acceptTireQuote({
                 booking_id: quoteAcceptContext.bookingId,
@@ -339,6 +679,7 @@ export default function BookingConfirmingScreen() {
                 mechanic_id: mechanicIdArg,
                 hold_id: holdId ? (holdId as Id<"slot_holds">) : undefined,
                 session_id: holdSessionId ?? undefined,
+                preauthorized_payment: quotePreauth,
               });
       } else {
         const bookingIds = await createBookingConvex(
@@ -379,11 +720,13 @@ export default function BookingConfirmingScreen() {
           // Best effort: Stripe will expire an uncaptured hold if cancel fails.
         }
       }
+      const conflict = readBookingError(err);
+      const message = formatBookingError(err, GENERIC_ERROR);
       if (createdBookingId) {
         try {
           await rollbackFailedBookingCreation({
             bookingId: createdBookingId,
-            reason: extractErrorMessage(err).slice(0, 500),
+            reason: message.slice(0, 500),
           });
         } catch {
           // Best effort: still show the original error so the user can retry.
@@ -391,10 +734,7 @@ export default function BookingConfirmingScreen() {
       }
       if (navigatedRef.current) return;
       navigatedRef.current = true;
-      router.replace({
-        pathname: "/booking/mechanic/[id]/payment",
-        params: { id, confirmError: extractErrorMessage(err) },
-      });
+      routeCheckoutFailure(err, conflict, message, shopId);
     } finally {
       // Wallet PMs are one-time tokens — release the slot whether the
       // booking succeeded or fell back to /payment, so a follow-up retry
@@ -429,6 +769,12 @@ export default function BookingConfirmingScreen() {
     handleNextAction,
     router,
     id,
+    rescheduleExpected,
+    setCheckoutPriceChange,
+    removeSelectedServices,
+    releaseSlotHold,
+    setSlotHold,
+    toast,
   ]);
 
   return (
@@ -452,7 +798,7 @@ export default function BookingConfirmingScreen() {
         style={[
           styles.copyOverlay,
           isCompactLayout && styles.copyOverlayCompact,
-          { top: confirmLayout.copyTopPercent as DimensionValue },
+          { top: confirmLayout.copyTop },
           copyAnimStyle,
         ]}
         pointerEvents="none"
@@ -494,6 +840,8 @@ export default function BookingConfirmingScreen() {
           title={confirmingCopy.sheetTitle}
           primaryCta={confirmingCopy.primaryCta}
           showPaymentSummary={confirmingCopy.showPaymentSummary}
+          blocker={confirmBlocker}
+          loading={rescheduleLoading}
         />
       </FloatingSheet>
     </View>

@@ -92,6 +92,7 @@ import { useVoiceRecording } from "@/hooks/useVoiceRecording";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { formatMake } from "@/utils/formatMake";
+import { titleCaseVehicleName } from "@/lib/vehicleName";
 import { createInitialState, processUserMessage, WELCOME_SUGGESTIONS } from "@/services/ai/scenarioEngine";
 import type { ConversationState, ChatMessage } from "@/services/ai/types";
 
@@ -101,8 +102,6 @@ import { useAction, useMutation, useQuery, useConvex } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id, Doc } from "@/convex/_generated/dataModel";
 import { CoachTarget } from "@/components/coach/CoachTarget";
-import { COACH_STEPS } from "@/components/coach/coachSteps";
-import { useCoachTourStore } from "@/stores/useCoachTourStore";
 
 // ============================================================================
 // CONSTANTS
@@ -169,17 +168,6 @@ function friendlyOtoError(err: unknown): string {
 // ============================================================================
 
 export default function AIChatScreen() {
-
-  // Only while the spotlight tour is on the Oto step.
-
-  const coachRunning = useCoachTourStore((st) => st.running);
-
-  const coachIndex = useCoachTourStore((st) => st.index);
-
-  const showCoachOtoStep =
-
-    coachRunning && COACH_STEPS[coachIndex]?.id === "oto";
-
 
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
@@ -348,7 +336,7 @@ export default function AIChatScreen() {
         vin: r.vin,
         year: v?.year ?? 0,
         make: formatMake(make),
-        model: model.charAt(0).toUpperCase() + model.slice(1).toLowerCase(),
+        model: titleCaseVehicleName(model),
         imageUrl,
         localImage,
       };
@@ -1843,11 +1831,8 @@ export default function AIChatScreen() {
 
       </View>
 
-      {/* Input area — absolutely positioned above keyboard.
-          Also shown during the tour's Oto step: the composer is what that
-          step is about, and hiding it behind the greeting left the step
-          pointing at a car picker instead of at the thing you type into. */}
-      {(!showChatGreeting || showCoachOtoStep) && (
+      {/* Input area — absolutely positioned above keyboard */}
+      {!showChatGreeting && (
         <View style={{
           position: 'absolute',
           left: 0,

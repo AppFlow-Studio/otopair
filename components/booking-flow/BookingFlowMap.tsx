@@ -30,7 +30,7 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { Platform, StyleSheet, View } from "react-native";
+import { AppState, Linking, Platform, Pressable, StyleSheet, View } from "react-native";
 import { useNavigation } from "expo-router";
 import MapView, {
   Circle,
@@ -50,10 +50,14 @@ import {
 import { MapSkeleton } from "@/components/booking-flow/MapSkeleton";
 import type { UserLocation } from "@/stores/types/store.types";
 
-/** Hard stop on the skeleton. `onMapLoaded` is not guaranteed to fire —
- *  a misconfigured Google Maps key, for one, leaves it silent — and a
- *  surface that shimmers forever reads worse than a static one. Past
- *  this we drop the skeleton and show whatever the map managed. */
+/** Hard stop on the skeleton. `onMapLoaded` is not guaranteed to fire — a
+ *  misconfigured Google Maps key, for one, leaves it silent — and a surface
+ *  that shimmers forever reads worse than a static one. Past this we drop the
+ *  skeleton and show whatever the map managed.
+ *
+ *  This is a FALLBACK, not a schedule. On iOS it had become the only path
+ *  (see the onMapReady note below), which is what made every map entry take
+ *  six seconds. */
 const MAP_READY_TIMEOUT_MS = 6000;
 
 export interface BookingFlowMarker {
@@ -177,8 +181,17 @@ export function BookingFlowMapProvider({
   children: React.ReactNode;
 }) {
   const mapRef = useRef<MapView | null>(null);
+  // `mapBlurTarget` is temur-dev's — the Android frosted-glass sheets blur
+  // whatever this ref points at. `retry` is ours (#321): the fallback offers
+  // Open Settings, and an AppState resume re-asks for location, so a driver
+  // who grants permission mid-flow doesn't have to back out and start again.
   const mapBlurTarget = useRef<View>(null);
-  const { location: resolvedLocation, stage, isResolving } = useStagedLocation();
+  const {
+    location: resolvedLocation,
+    stage,
+    isResolving,
+    retry: retryLocation,
+  } = useStagedLocation();
   // Android: a previous booking entry this session already resolved a fix
   // (the store keeps it). Start the camera there so the MapView mounts on
   // the first frame instead of after the permission check and the first
@@ -221,6 +234,20 @@ export function BookingFlowMapProvider({
   useEffect(() => {
     setLocationLoading(isResolving);
   }, [isResolving, setLocationLoading]);
+
+  // Refusing location used to be permanent for the life of the screen: the
+  // resolve ran once on mount, so granting it in Settings changed nothing
+  // until the whole flow was re-entered. Re-check on foreground, but ONLY
+  // while location is actually unavailable — the resolve calls expo's
+  // request path, which on Android starts a permission Activity that itself
+  // flips AppState, and re-running it unconditionally would loop (#321).
+  useEffect(() => {
+    if (stage !== "unavailable") return;
+    const sub = AppState.addEventListener("change", (next) => {
+      if (next === "active") retryLocation();
+    });
+    return () => sub.remove();
+  }, [stage, retryLocation]);
 
   useEffect(() => {
     if (resolvedLocation) {
@@ -325,7 +352,24 @@ export function BookingFlowMapProvider({
                 style={StyleSheet.absoluteFill}
                 provider={PROVIDER_DEFAULT}
                 initialRegion={region}
+                // Android: `onMapLoaded` means tiles are drawn, which is the
+                // right signal there — Google paints a blank beige canvas long
+                // before it has anything to show.
+                //
+                // iOS: `onMapLoaded` NEVER FIRES. It is implemented only in
+                // ios/AirGoogleMaps; ios/AirMaps (Apple Maps, which is what
+                // PROVIDER_DEFAULT resolves to here) does not emit it —
+                // mapViewDidFinishRenderingMap calls finishLoading and sends no
+                // event. So the skeleton could only ever clear via the 6s
+                // fallback, on every single map entry. That is bug #295, "the
+                // map takes forever to load": it was six seconds, every time.
+                //
+                // Apple Maps emits onMapReady from mapViewWillStartRenderingMap,
+                // which is the earliest honest signal that surface has.
                 onMapLoaded={() => setMapReady(true)}
+                onMapReady={
+                  Platform.OS === "ios" ? () => setMapReady(true) : undefined
+                }
                 showsUserLocation
                 scrollEnabled
                 zoomEnabled
@@ -365,6 +409,22 @@ export function BookingFlowMapProvider({
                     ? "Enable location to see nearby shops"
                     : "Finding your location..."}
                 </Text>
+                {/* A sentence on a grey panel was the whole of it — no way
+                    forward, which is why refusing location read as "the map is
+                    broken". iOS only asks once, so Settings is the only route
+                    back; the resume listener above picks the grant up. */}
+                {stage === "unavailable" ? (
+                  <Pressable
+                    onPress={() => void Linking.openSettings()}
+                    style={styles.fallbackAction}
+                    accessibilityRole="button"
+                    accessibilityLabel="Open Settings to enable location"
+                  >
+                    <Text size="sm" weight="bold" color={BrandColors.secondary}>
+                      Open Settings
+                    </Text>
+                  </Pressable>
+                ) : null}
               </View>
             )}
           </View>
@@ -438,6 +498,11 @@ function BookingFlowShopPinMarker({ pin }: { pin: BookingFlowShopPin }) {
 }
 
 const styles = StyleSheet.create({
+  fallbackAction: {
+    marginTop: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
   root: {
     flex: 1,
     backgroundColor: BrandColors.background,

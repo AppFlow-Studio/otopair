@@ -31,7 +31,18 @@ import type { View as RNView } from 'react-native';
 
 // 2. Expo & Third-party
 import { useGuardedRouter as useRouter } from '@/hooks/useGuardedRouter';
-import { Car, FileText, MessageCircle, Star, User } from 'lucide-react-native';
+import { vehicleMakeModel } from '@/lib/vehicleName';
+import {
+  Calendar,
+  Car,
+  ChevronRight,
+  FileText,
+  MapPin,
+  MessageCircle,
+  Star,
+  User,
+  Wrench,
+} from 'lucide-react-native';
 import Animated, { FadeOut, LinearTransition, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
 // 3. Shared UI
@@ -46,9 +57,16 @@ import { isBookingActionAllowed } from '@/lib/connection/offlineBookingActions';
 import { OfflineActionsNotice } from '@/components/connection/OfflineActionsNotice';
 import { useRescheduleDecisionOverlayStore } from '@/stores/useRescheduleDecisionOverlayStore';
 import { useBookingActions } from '@/hooks/useBookingActions';
-import { buildCancelCopy } from '@/constants/bookingActionPolicy';
+import { buildCancelCopy, isLocalBookingId } from '@/constants/bookingActionPolicy';
+import { useQuery } from 'convex/react';
+import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
+import { readBookingError } from '@/convex/lib/bookingErrors';
 import { SemanticColors } from '@/constants/theme';
+import { titleCaseVehicleName as titleCase } from '@/lib/vehicleName';
+
+/** The Otopair pin, in place of a generic map marker on the shop line. */
+const OTO_PIN = require('@/assets/images/pin-logo-3d.png');
 
 // Android's Reanimated FadeOut exit on this card janks/crashes during the
 // list re-layout after cancel; skip the exit animation there and keep it
@@ -145,12 +163,24 @@ export interface Booking {
   cancellationReasonLabel?: string;
 }
 
+/** The fields of `api.bookings.cancelBooking`'s result the card reads. */
+export interface CancelBookingOutcome {
+  alreadyClosed?: boolean;
+  status?: string;
+}
+
 export interface BookingCardProps {
   booking: Booking;
   variant: 'upcoming' | 'history';
   onViewDetails?: (bookingId: string) => void;
-  /** feeAcknowledgedCents = the late-cancel fee shown to the customer, if any. */
-  onCancelBooking?: (bookingId: string, feeAcknowledgedCents?: number) => void;
+  /** feeAcknowledgedCents = the late-cancel fee shown to the customer, if any.
+   *  Return the mutation promise so the card can undo its optimistic
+   *  "cancelling" dim when the cancel fails or someone else already closed
+   *  the booking (bug #394). Rejects with the original Convex error. */
+  onCancelBooking?: (
+    bookingId: string,
+    feeAcknowledgedCents?: number,
+  ) => void | Promise<CancelBookingOutcome | void>;
   onReschedule?: (bookingId: string) => void;
   /** vehicle_at_shop "Request to cancel & pick up car" — notifies the shop. */
   onRequestPickup?: (bookingId: string) => void;
@@ -162,15 +192,15 @@ export interface BookingCardProps {
    *  badge shows in the title row (opens the chat). Supplied by the active-list
    *  wrapper (UpcomingBookingCard) that subscribes to the booking's tickets. */
   unreadMessageCount?: number;
+  /** The shop is waiting on approval for extra work — raises the banner. */
+  hasUnreadEstimate?: boolean;
 }
 
 // ============================================================================
 // HELPERS
 // ============================================================================
 
-function titleCase(str: string): string {
-  return str.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
-}
+
 
 // Copy + colors for the pickup-request status banner. `undefined` response =
 // requested but not yet answered by the shop.
@@ -292,6 +322,29 @@ function getActionButtonLabelSize(rowWidth: number, fontScale: number): number {
 // STATUS CONFIG
 // ============================================================================
 
+/**
+ * Bookings redesign tokens (PM handoff, Sep 16 2026).
+ *
+ * Deliberately local to this surface. The handoff specifies a Primary Blue of
+ * #2563EB where the rest of the app uses #5299FE — a real divergence, not a
+ * rounding error, and one worth settling app-wide rather than quietly
+ * splitting the difference here.
+ */
+const T = {
+  blue: '#2563EB',
+  blueLight: '#EFF6FF',
+  green: '#059669',
+  greenLight: '#ECFDF5',
+  red: '#DC2626',
+  redLight: '#FEF2F2',
+  textPrimary: '#1A1A1A',
+  textSecondary: '#374151',
+  textMuted: '#6B7280',
+  textDisabled: '#9CA3AF',
+  border: '#E2E8F0',
+  surface: '#F8FAFC',
+} as const;
+
 export const STATUS_CONFIG: Record<BookingStatus, { label: string; bgColor: string; textColor: string }> = {
   pending_shop_acceptance: {
     label: 'Pending Shop',
@@ -329,9 +382,18 @@ export const STATUS_CONFIG: Record<BookingStatus, { label: string; bgColor: stri
     textColor: '#4CAF50',
   },
   vehicle_at_shop: {
-    label: 'Checked In',
-    bgColor: '#ECFEFF',
-    textColor: '#0E7490',
+    // Presents as In Progress to the customer (#294) — same label and colour
+    // as in_progress, so the two are indistinguishable once the car is at the
+    // shop. Yassin's ruling: the customer-facing status flips at check-in.
+    //
+    // NOTE this overrides the Bookings Redesign handoff, which specified a
+    // green CHECKED IN pill here. Flagged on the ticket — the handoff and the
+    // ruling disagree and the ruling is the later, more specific decision.
+    // The `checkedIn` behaviour below still keys on the STATUS, not the label,
+    // so request-pickup is unaffected.
+    label: 'In Progress',
+    bgColor: '#E0E7FF',
+    textColor: '#4F46E5',
   },
   in_progress: {
     label: 'In Progress',
@@ -375,6 +437,7 @@ export function BookingCard({
   onDownloadPdf,
   onToggleFavorite,
   unreadMessageCount = 0,
+  hasUnreadEstimate = false,
 }: BookingCardProps) {
   const router = useRouter();
   const openRescheduleDecision = useRescheduleDecisionOverlayStore((s) => s.open);
@@ -389,6 +452,17 @@ export function BookingCard({
   // and what a cancellation costs. Shared with BookingDetailsSheet so gating
   // is identical everywhere.
   const actions = useBookingActions(booking.id, booking.status);
+  // Why Reschedule is off, in the mutation's own words (bug #403). Read
+  // directly because useBookingActions doesn't carry it; Convex dedupes the
+  // identical subscription. It covers a job clock that already started while
+  // the status still reads `confirmed`, which the phase model can't see.
+  const serverActions = useQuery(
+    api.bookings.getCustomerBookingActions,
+    variant === 'upcoming' && booking.id && !isLocalBookingId(booking.id)
+      ? { bookingId: booking.id as Id<'bookings'> }
+      : 'skip',
+  );
+  const rescheduleBlockedReason = serverActions?.rescheduleBlockedReason ?? null;
   const primaryBtnRef = useRef<RNView | null>(null);
   const [actionsRowWidth, setActionsRowWidth] = useState(0);
   // Local "just cancelled" state. The card swaps the badge + dims for ~450ms
@@ -403,6 +477,9 @@ export function BookingCard({
     bgColor: '#E5E7EB',
     textColor: '#6B7280',
   };
+
+  /** Drives the green treatment on the date row and its inline pill. */
+  const checkedIn = effectiveStatus === 'vehicle_at_shop';
 
   const dim = useSharedValue(1);
   useEffect(() => {
@@ -498,6 +575,55 @@ export function BookingCard({
   const pickupAlreadyRequested =
     actions.cancelKind === 'request_shop' && booking.pickupRequestedAtMs != null;
 
+  // Undo the optimistic "cancelled" dim — the cancel failed, or someone else
+  // closed the booking first and it didn't end up cancelled (bug #394).
+  const resetCancelling = () => {
+    setIsCancelling(false);
+    dim.value = withTiming(1, { duration: 200 });
+  };
+
+  // `feeCents` overrides the policy fee when the server said it changed
+  // (FEE_CHANGED) so the re-opened confirm discloses the new amount.
+  const confirmCancel = (feeCents: number) => {
+    const copy = buildCancelCopy({ ...actions, feeCentsIfCancelledNow: feeCents });
+    Alert.alert(copy.title, copy.body, [
+      { text: 'Keep It', style: 'cancel' },
+      {
+        text: copy.confirmLabel,
+        style: 'destructive',
+        onPress: () => {
+          // Show the in-card "cancelled" visual first, THEN fire the
+          // mutation. The data-source removal triggers FadeOut, and
+          // sibling cards shift smoothly via layout transition. The promise
+          // is awaited so a failure (or an already-closed booking) resets
+          // the dim instead of leaving the row greyed out.
+          setIsCancelling(true);
+          setTimeout(() => {
+            void (async () => {
+              try {
+                const outcome = await onCancelBooking?.(booking.id, feeCents);
+                if (
+                  outcome &&
+                  outcome.alreadyClosed &&
+                  outcome.status !== 'cancelled'
+                ) {
+                  resetCancelling();
+                }
+              } catch (err) {
+                // The parent already toasted the message.
+                resetCancelling();
+                const data = readBookingError(err);
+                if (data?.code === 'FEE_CHANGED' && typeof data.currentCents === 'number') {
+                  confirmCancel(data.currentCents);
+                }
+              }
+            })();
+          }, 450);
+        },
+      },
+    ]);
+  };
+
   const handleCancelBooking = () => {
     if (isCancelling) return;
     const copy = buildCancelCopy(actions);
@@ -514,26 +640,19 @@ export function BookingCard({
 
     // Free or late-fee cancel. The fee (when any) is disclosed in the body +
     // confirm label so it's unmissable before we charge.
-    Alert.alert(copy.title, copy.body, [
-      { text: 'Keep It', style: 'cancel' },
-      {
-        text: copy.confirmLabel,
-        style: 'destructive',
-        onPress: () => {
-          // Show the in-card "cancelled" visual first, THEN fire the
-          // mutation. The data-source removal triggers FadeOut, and
-          // sibling cards shift smoothly via layout transition.
-          setIsCancelling(true);
-          setTimeout(
-            () => onCancelBooking?.(booking.id, actions.feeCentsIfCancelledNow),
-            450,
-          );
-        },
-      },
-    ]);
+    confirmCancel(actions.feeCentsIfCancelledNow);
   };
 
   const handleReschedule = () => {
+    // The server says a move would be refused (work started / car checked in
+    // / booking ended): say why and offer the shop instead (bug #403).
+    if (rescheduleBlockedReason) {
+      Alert.alert("Can't reschedule", rescheduleBlockedReason.message, [
+        { text: 'Not now', style: 'cancel' },
+        { text: 'Message the shop', onPress: () => onMessageShop?.(booking.id) },
+      ]);
+      return;
+    }
     // Over the free limit / inside cutoff / car already at shop → the customer
     // can't self-reschedule; route them to the shop instead.
     if (actions.rescheduleKind !== 'free') {
@@ -570,6 +689,11 @@ export function BookingCard({
       <BookingProgressBar
         stages={stageView.stages}
         currentIndex={stageView.currentIndex}
+        // The status pill now names the state, which is the documented
+        // reason this prop exists. Two differently-worded status lines
+        // ("Booked" over "PENDING") also cost ~34pt of height on a card
+        // the redesign wants wide rather than tall.
+        showStageLabel={variant !== 'upcoming'}
       />
 
       {/* Pending-approval or reauth-required CTA. Returns null when the
@@ -579,72 +703,133 @@ export function BookingCard({
         paymentApprovalState={booking.paymentApprovalState}
       />
 
-      {/* Booking identifier — invoice number if the mechanic attached one,
-          else the last-6 of the convex booking id. Tiny gray line above the
-          service title so customers can quote it on a support ticket. */}
-      {idLine ? (
-        <Text
-          weight="semiBold"
-          size="xs"
-          color="#9CA3AF"
-          style={styles.idLine}
-        >
-          {idLine}
-        </Text>
+      {/* History keeps the old head: booking id line + service title + status
+          badge. The redesign covers the active list only, and a completed row
+          with no service name on it is unreadable as a receipt. */}
+      {variant !== 'upcoming' ? (
+        <>
+          {idLine ? (
+            <Text weight="semiBold" size="xs" color="#9CA3AF" style={styles.idLine}>
+              {idLine}
+            </Text>
+          ) : null}
+          <View style={styles.titleRow}>
+            <View style={styles.servicesContainer}>
+              <Text
+                weight="bold"
+                size="xl"
+                color="#1F2937"
+                numberOfLines={1}
+                style={styles.mainServiceText}
+              >
+                {mainService}
+              </Text>
+              {additionalCount > 0 && (
+                <>
+                  <Text weight="bold" size="xl" color="#1F2937">, </Text>
+                  <Text weight="semiBold" size="xl" color="#5299FE" numberOfLines={1}>
+                    {additionalText}
+                  </Text>
+                </>
+              )}
+            </View>
+            <View style={[styles.statusBadge, { backgroundColor: statusConfig.bgColor }]}>
+              <Text weight="semiBold" size="sm" color={statusConfig.textColor}>
+                {statusConfig.label}
+              </Text>
+            </View>
+          </View>
+        </>
       ) : null}
 
-      {/* Title Row */}
-      <View style={styles.titleRow}>
-        <View style={styles.servicesContainer}>
-          <Text
-            weight="bold"
-            size="xl"
-            color={showOutcomeLabel ? '#6B7280' : '#1F2937'}
-            numberOfLines={1}
-            style={[styles.mainServiceText, isCancelling ? styles.strikethrough : undefined]}
-          >
-            {displayTitle}
-          </Text>
-          {additionalCount > 0 && !showOutcomeLabel && (
-            <>
-              <Text weight="bold" size="xl" color="#1F2937">, </Text>
-              <Text
-                weight="semiBold"
-                size="xl"
-                color="#5299FE"
-                numberOfLines={1}
-                style={isCancelling ? styles.strikethrough : undefined}
-              >
-                {additionalText}
-              </Text>
-            </>
-          )}
-        </View>
-        {unreadMessageCount > 0 ? (
-          <Pressable
-            onPress={handleMessageShop}
-            hitSlop={8}
-            style={({ pressed }) => [
-              styles.unreadBadge,
-              pressed && styles.buttonPressed,
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel={`${unreadMessageCount} unread message${unreadMessageCount === 1 ? '' : 's'} from the shop`}
-          >
-            <MessageCircle size={13} color="#FFFFFF" strokeWidth={2.6} />
-            <Text weight="bold" size="xs" color="#FFFFFF">
-              {unreadMessageCount > 99 ? '99+' : unreadMessageCount}
-            </Text>
-          </Pressable>
-        ) : null}
-        <View style={[styles.statusBadge, { backgroundColor: statusConfig.bgColor }]}>
-          <Text weight="semiBold" size="sm" color={statusConfig.textColor}>
-            {statusConfig.label}
-          </Text>
-        </View>
-      </View>
+      {/* Card header — status pill left, chevron right, the whole row a
+          target for the detail sheet.
 
-      {/* Car and Mechanic Info Row */}
+          The service name used to be the headline here and the redesign drops
+          it: the mock leads with the vehicle. Flagged to Ahmad — on a list of
+          several bookings "Honda CR-V SE" does not say what is being done to
+          it. Kept exactly as specified pending his call. */}
+      {variant === 'upcoming' ? (
+        <Pressable
+          onPress={handleViewDetails}
+          disabled={isCancelling}
+          style={styles.cardHeader}
+          accessibilityRole="button"
+          accessibilityLabel={`${statusConfig.label}. ${titleCase(booking.carModel)}, ${mainService}. View details`}
+        >
+          <View style={[styles.statusPill, { backgroundColor: statusConfig.bgColor }]}>
+            <Text
+              weight="semiBold"
+              size="xs"
+              color={statusConfig.textColor}
+              style={styles.statusPillLabel}
+            >
+              {statusConfig.label}
+            </Text>
+          </View>
+          <ChevronRight size={22} color={T.textDisabled} strokeWidth={2} />
+        </Pressable>
+      ) : null}
+
+      {/* Vehicle row — large car image, then vehicle / mechanic / shop.
+          History keeps the old two-column split; only the active list was
+          redesigned. */}
+      {variant === 'upcoming' ? (
+        <View style={styles.vehicleRow}>
+          {showCarPlaceholder ? (
+            <View style={styles.vehicleImagePlaceholder}>
+              <Car size={34} color={T.textDisabled} strokeWidth={1.5} />
+            </View>
+          ) : (
+            <Image
+              source={{ uri: booking.makeLogoUrl! }}
+              style={styles.vehicleImage}
+              resizeMode="contain"
+              onError={() => setCarImageError(true)}
+            />
+          )}
+          <View style={styles.vehicleText}>
+            <Text
+              weight="bold"
+              size="lg"
+              lineHeight={1.15}
+              color={T.textPrimary}
+              numberOfLines={2}
+              style={isCancelling ? styles.strikethrough : undefined}
+            >
+              {titleCase(vehicleMakeModel(booking.carModel))}
+            </Text>
+            <Text
+              weight="regular"
+              size="sm"
+              lineHeight={1.25}
+              color={T.textSecondary}
+              numberOfLines={1}
+            >
+              {booking.mechanicName}
+            </Text>
+            {/* Server falls back to shopName for `mechanicName` when no
+                mechanic is assigned, so skip the pin line rather than
+                render the same string twice. */}
+            {booking.mechanicName !== booking.shopName ? (
+              <View style={styles.shopLine}>
+                <Image source={OTO_PIN} style={styles.shopPin} resizeMode="contain" />
+                <Text
+                  weight="regular"
+                  size="sm"
+                  lineHeight={1.25}
+                  color={T.textMuted}
+                  numberOfLines={2}
+                  style={styles.shopLineText}
+                >
+                  {booking.shopName}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+      ) : (
+
       <View style={styles.infoRow}>
         {/* Car Info */}
         <View style={styles.carInfo}>
@@ -699,6 +884,7 @@ export function BookingCard({
           </View>
         </View>
       </View>
+      )}
 
       {/* Date/Time or Completion Info */}
       {variant === 'upcoming' ? (
@@ -712,23 +898,58 @@ export function BookingCard({
             </Text>
           </View>
         ) : (
-          <View style={styles.dateTimeContainer}>
-            <Text
-              weight="semiBold"
-              size="sm"
-              color={isCancelledCard ? '#9CA3AF' : '#5299FE'}
-              style={isCancelledCard ? styles.strikethrough : undefined}
+          <View style={[styles.dateRow, checkedIn && styles.dateRowCheckedIn]}>
+            <Calendar size={22} color={checkedIn ? T.green : T.blue} strokeWidth={2} />
+            <View style={styles.dateText}>
+              {/* Kept from temur-dev through the merge: a cancelled card
+                  strikes its date and time through. The redesigned row below
+                  is ours, but it had no cancelled treatment and theirs did —
+                  losing it would have made a cancelled booking read as live. */}
+              <Text
+                weight="semiBold"
+                size="md"
+                lineHeight={1.2}
+                color={isCancelledCard ? T.textMuted : T.textPrimary}
+                style={isCancelledCard ? styles.strikethrough : undefined}
+                numberOfLines={1}
+              >
+                {booking.date}
+              </Text>
+              <Text
+                weight="regular"
+                size="sm"
+                lineHeight={1.2}
+                color={T.textMuted}
+                style={isCancelledCard ? styles.strikethrough : undefined}
+                numberOfLines={1}
+              >
+                {booking.time}
+              </Text>
+            </View>
+            {/* View Details moved off its own full-width blue button and into
+                this row, per the handoff. */}
+            <Pressable
+              ref={primaryBtnRef}
+              onPress={handleViewDetails}
+              disabled={isCancelling}
+              style={({ pressed }) => [
+                styles.detailsPill,
+                checkedIn && styles.detailsPillCheckedIn,
+                pressed && styles.buttonPressed,
+              ]}
+              accessibilityRole="button"
             >
-              {booking.date}
-            </Text>
-            <Text
-              weight="semiBold"
-              size="sm"
-              color={isCancelledCard ? '#9CA3AF' : '#5299FE'}
-              style={isCancelledCard ? styles.strikethrough : undefined}
-            >
-              {booking.time}
-            </Text>
+              {checkedIn ? (
+                <MapPin size={16} color={T.green} strokeWidth={2.2} />
+              ) : (
+                <Calendar size={16} color={T.blue} strokeWidth={2.2} />
+              )}
+              <Text weight="semiBold" size="sm" color={checkedIn ? T.green : T.blue}>
+                {booking.status === 'pending_customer_acceptance'
+                  ? 'Review change'
+                  : 'View Details'}
+              </Text>
+            </Pressable>
           </View>
         )
       ) : (
@@ -796,6 +1017,67 @@ export function BookingCard({
         </View>
       )}
 
+      {/* View Message row.
+
+          The redesign removes the service title, and the unread badge used to
+          live beside it — so without this row an unread shop message would
+          have nowhere to show at all. It replaces the badge rather than
+          supplementing it. */}
+      {variant === 'upcoming' && unreadMessageCount > 0 ? (
+        <View style={styles.messageStack}>
+          {/* Updated-estimate banner. Only for approve_extra_work, because
+              the copy is a specific claim — "we found more than we expected"
+              is not true of a running-late note. It overlaps the row below so
+              the two read as one unit rather than two stacked cards. */}
+          {hasUnreadEstimate ? (
+            <Pressable
+              onPress={handleMessageShop}
+              style={({ pressed }) => [styles.estimateBanner, pressed && styles.buttonPressed]}
+              accessibilityRole="button"
+              accessibilityLabel="Your car requires more than we expected. Tap to review your mechanic's updated estimate"
+            >
+              <View style={styles.estimateAccent} />
+              <View style={styles.estimateIcon}>
+                <Wrench size={18} color={SemanticColors.warningAmber} strokeWidth={2.2} />
+              </View>
+              <View style={styles.estimateText}>
+                <Text weight="bold" size="sm" color={T.textPrimary} numberOfLines={2}>
+                  Your car requires more than we expected
+                </Text>
+                <Text weight="regular" size="sm" color={T.textMuted} numberOfLines={2}>
+                  Tap to review your mechanic&apos;s updated estimate.
+                </Text>
+              </View>
+              <ChevronRight size={20} color={T.textDisabled} strokeWidth={2} />
+            </Pressable>
+          ) : null}
+        </View>
+      ) : null}
+
+      {variant === 'upcoming' && unreadMessageCount > 0 ? (
+        <Pressable
+          onPress={handleMessageShop}
+          style={({ pressed }) => [styles.messageRow, pressed && styles.buttonPressed]}
+          accessibilityRole="button"
+          accessibilityLabel={`View message. ${unreadMessageCount} unread message${unreadMessageCount === 1 ? '' : 's'} from the shop`}
+        >
+          <View style={styles.messageIcon}>
+            <MessageCircle size={18} color="#FFFFFF" strokeWidth={2.4} />
+          </View>
+          <Text weight="semiBold" size="lg" color={T.blue} style={styles.messageLabel}>
+            View Message
+          </Text>
+          {unreadMessageCount > 1 ? (
+            <View style={styles.messageCount}>
+              <Text weight="bold" size="xs" color="#FFFFFF">
+                {unreadMessageCount > 99 ? '99+' : unreadMessageCount}
+              </Text>
+            </View>
+          ) : null}
+          <ChevronRight size={20} color={T.textDisabled} strokeWidth={2} />
+        </Pressable>
+      ) : null}
+
       {/* Held-up notice. Sits above the pickup row because "we can't finish
           yet" is the more urgent fact — and if the car is blocked, a pickup
           estimate is answering the wrong question. Renders nothing unless the
@@ -841,30 +1123,6 @@ export function BookingCard({
           onLayout={(event) => setActionsRowWidth(event.nativeEvent.layout.width)}
           pointerEvents={isCancelling ? 'none' : 'auto'}
         >
-          <Pressable
-            ref={primaryBtnRef}
-            onPress={handleViewDetails}
-            disabled={isCancelling}
-            style={({ pressed }) => [
-              styles.primaryButton,
-              styles.primaryButtonFull,
-              pressed && styles.buttonPressed,
-            ]}
-          >
-            <Text
-              weight="semiBold"
-              size={actionButtonLabelSize}
-              color="#FFFFFF"
-              numberOfLines={1}
-              lineHeight={1.2}
-              style={styles.actionButtonLabel}
-            >
-              {booking.status === 'pending_customer_acceptance'
-                ? 'Review change'
-                : 'View Details'}
-            </Text>
-          </Pressable>
-
           {/* Cancel / Reschedule are governed by the phase policy (actions):
               in_progress → Message shop; terminal → nothing; vehicle_at_shop →
               Request pickup + Contact shop; otherwise Cancel + Reschedule. */}
@@ -936,7 +1194,7 @@ export function BookingCard({
                       lineHeight={1.2}
                       style={styles.actionButtonLabel}
                     >
-                      {actions.rescheduleKind === 'free'
+                      {actions.rescheduleKind === 'free' && !rescheduleBlockedReason
                         ? 'Reschedule'
                         : 'Contact shop'}
                     </Text>
@@ -996,14 +1254,166 @@ export function BookingCard({
 const styles = StyleSheet.create({
   card: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
+    borderRadius: 20,
+    padding: 18,
+    marginBottom: 16,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.06,
-    shadowRadius: 8,
+    shadowRadius: 16,
     elevation: 3,
+  },
+
+  // ── redesigned active card (PM handoff, Sep 16 2026) ──────────────────
+  cardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 2,
+    marginBottom: 12,
+  },
+  statusPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 999,
+  },
+  statusPillLabel: {
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  vehicleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    marginBottom: 16,
+  },
+  vehicleImage: {
+    width: '32%',
+    height: 80,
+  },
+  vehicleImagePlaceholder: {
+    width: '32%',
+    height: 80,
+    borderRadius: 14,
+    backgroundColor: T.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  vehicleText: {
+    flex: 1,
+    gap: 3,
+  },
+  shopLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 5,
+  },
+  shopPin: {
+    width: 17,
+    height: 17,
+  },
+  shopLineText: {
+    flex: 1,
+  },
+  dateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: T.blueLight,
+    borderRadius: 14,
+    padding: 14,
+    marginBottom: 16,
+  },
+  dateRowCheckedIn: {
+    backgroundColor: T.greenLight,
+  },
+  dateText: {
+    flex: 1,
+  },
+  detailsPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+  },
+  detailsPillCheckedIn: {
+    backgroundColor: '#FFFFFF',
+  },
+  messageStack: {
+    zIndex: 2,
+  },
+  estimateBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingLeft: 16,
+    paddingRight: 12,
+    // Sits ON the View Message row below it, so the pair reads as one
+    // element. The row's own top padding absorbs the overlap.
+    marginBottom: -8,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 4,
+    overflow: 'hidden',
+  },
+  estimateAccent: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 4,
+    backgroundColor: SemanticColors.warningAmber,
+  },
+  estimateIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: SemanticColors.warningAmberLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  estimateText: {
+    flex: 1,
+    gap: 2,
+  },
+  messageRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: T.blueLight,
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    height: 56,
+    marginBottom: 14,
+  },
+  messageIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: T.blue,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  messageLabel: {
+    flex: 1,
+  },
+  messageCount: {
+    minWidth: 22,
+    height: 22,
+    borderRadius: 11,
+    paddingHorizontal: 6,
+    backgroundColor: T.red,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   idLine: {
     letterSpacing: 0.6,
@@ -1181,11 +1591,11 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     flexShrink: 1,
     minWidth: 0,
-    height: 48,
+    height: 50,
     paddingHorizontal: 16,
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: T.border,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1199,9 +1609,9 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     flexShrink: 1,
     minWidth: 0,
-    height: 48,
+    height: 50,
     paddingHorizontal: 16,
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: '#FECACA',
     backgroundColor: '#FEF2F2',

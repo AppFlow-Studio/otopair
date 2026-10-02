@@ -23,6 +23,10 @@ import { useNotificationsSheetStore } from "@/stores/useNotificationsSheetStore"
 import { useUnreadNotificationCount } from "@/hooks/useNotificationsFromConvex";
 import { type Booking } from "@/components/bookings/BookingCard";
 import { UpcomingBookingCard } from "@/components/bookings/UpcomingBookingCard";
+import {
+  MessageShopSheet,
+  type MessageShopSheetRef,
+} from "@/components/bookings/MessageShopSheet";
 import { PendingQuoteCard } from "@/components/bookings/PendingQuoteCard";
 import { QuoteListSheet, type QuoteListSheetRef } from "@/components/bookings/QuoteListSheet";
 import {
@@ -43,6 +47,8 @@ import { useBookingsBadgeStore } from "@/stores/useBookingsBadgeStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { api } from "@/convex/_generated/api";
 import { useMutationWithToast } from "@/hooks/useMutationWithToast";
+import { alreadyClosedCancelCopy } from "@/lib/error-ui";
+import { formatBookingError } from "@/convex/lib/bookingErrors";
 import { useQuoteRequestAvailability } from "@/hooks/useQuoteRequestAvailability";
 import { formatFeeCents } from "@/constants/bookingActionPolicy";
 import { useToast } from "@/hooks/useToast";
@@ -57,9 +63,7 @@ import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import SegmentedControl from "@react-native-segmented-control/segmented-control";
-import { CoachDemoBooking } from "@/components/coach/CoachDemoBooking";
-import { useCoachTourStore } from "@/stores/useCoachTourStore";
-import { COACH_STEPS } from "@/components/coach/coachSteps";
+import { CoachTarget } from "@/components/coach/CoachTarget";
 
 // ============================================================================
 // TYPES
@@ -97,12 +101,6 @@ function AllVehiclesGlyph({ size = 40, icon = 22 }: { size?: number; icon?: numb
 // ============================================================================
 
 export default function BookingsScreen() {
-  // True only while the spotlight tour is on the bookings step, so the
-  // sample card never appears in the real list.
-  const coachRunning = useCoachTourStore((st) => st.running);
-  const coachIndex = useCoachTourStore((st) => st.index);
-  const showCoachDemoBooking =
-    coachRunning && COACH_STEPS[coachIndex]?.target === "bookings.live";
 
   const insets = useSafeAreaInsets();
   // historyBookings is still imported because handleViewDetails opens the
@@ -230,23 +228,31 @@ export default function BookingsScreen() {
 
   const toast = useToast();
   const cancelConvexBooking = useMutationWithToast(api.bookings.cancelBooking, {
-    success: ({ result }) => ({
-      title:
-        result && result.feeCents > 0
-          ? `Booking cancelled — ${formatFeeCents(result.feeCents)} fee charged.`
-          : "Booking cancelled.",
-    }),
+    success: ({ result }) => {
+      // Someone else ended it first (bug #394): say who, never "cancelled"
+      // or "fee charged" for a cancel this tap didn't make.
+      const closed = alreadyClosedCancelCopy(result);
+      if (closed) return { title: closed, variant: "info" };
+      return {
+        title:
+          result && result.feeCents > 0
+            ? `Booking cancelled — ${formatFeeCents(result.feeCents)} fee charged.`
+            : "Booking cancelled.",
+      };
+    },
     successIcon: CalendarX,
-    error: (ctx) => ({
-      title: ctx.error.message || "Couldn't cancel this booking. Try again.",
-    }),
+    // FEE_CHANGED / JOB_ALREADY_STARTED / VEHICLE_CHECKED_IN carry their own
+    // sentence; BookingCard re-opens the confirm at the new fee on FEE_CHANGED.
+    error: (ctx) => ({ title: ctx.message }),
+    errorFallback: "Couldn't cancel this booking. Try again.",
   });
   const cancelQuoteRequest = useMutationWithToast(api.bookings.cancelBooking, {
+    // A quote request has no fee and no shop-side cancel to race, so the
+    // plain copy stands (tests/quoteRequestCancellationCopy pins it).
     success: "Quote request cancelled.",
     successIcon: CalendarX,
-    error: (ctx) => ({
-      title: ctx.error.message || "Couldn't cancel this quote request. Try again.",
-    }),
+    error: (ctx) => ({ title: ctx.message }),
+    errorFallback: "Couldn't cancel this quote request. Try again.",
   });
   const dismissExpiredQuoteRequest = (api.bookings as unknown as {
     dismissExpiredQuoteRequest: FunctionReference<
@@ -263,14 +269,18 @@ export default function BookingsScreen() {
     api.bookings.requestCancellationAtShop,
     {
       success: "Pickup request sent. The shop will confirm.",
-      error: (ctx) => ({
-        title: ctx.error.message || "Couldn't send your request. Try again.",
-      }),
+      error: (ctx) => ({ title: ctx.message }),
+      errorFallback: "Couldn't send your request. Try again.",
     },
   );
   useEffect(() => {
     if (typeof rescheduleError === "string" && rescheduleError.length > 0) {
-      toast.error("Couldn't request reschedule.", rescheduleError);
+      // The param is produced by another screen's catch; run it through the
+      // formatter so a raw Convex wrapper can never reach the toast (#394).
+      toast.error(
+        "Couldn't request reschedule.",
+        formatBookingError(rescheduleError, "Please try again in a moment."),
+      );
     }
   }, [rescheduleError, toast]);
   const handleCancelBooking = useCallback(
@@ -279,12 +289,14 @@ export default function BookingsScreen() {
       if (isLocalId) {
         cancelLocalBooking(bookingId);
         toast.success("Booking cancelled.", undefined, { icon: CalendarX });
-      } else {
-        await cancelConvexBooking({
-          bookingId: bookingId as Id<"bookings">,
-          feeAcknowledgedCents,
-        });
+        return undefined;
       }
+      // Returned (and rejections propagated) so BookingCard can reset its
+      // optimistic dim and re-open the confirm on FEE_CHANGED (bug #394).
+      return cancelConvexBooking({
+        bookingId: bookingId as Id<"bookings">,
+        feeAcknowledgedCents,
+      });
     },
     [cancelConvexBooking, cancelLocalBooking, toast],
   );
@@ -318,7 +330,9 @@ export default function BookingsScreen() {
       if (bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_")) {
         return;
       }
-      void requestPickupConvex({ bookingId: bookingId as Id<"bookings"> });
+      // The hook already toasted any failure; the catch only keeps the
+      // dropped promise from surfacing as an unhandled rejection.
+      requestPickupConvex({ bookingId: bookingId as Id<"bookings"> }).catch(() => {});
     },
     [requestPickupConvex],
   );
@@ -349,10 +363,37 @@ export default function BookingsScreen() {
 
   // "Message shop" (in_progress / contact-shop paths) opens the details sheet,
   // which owns the mechanic chat entry — one hop to the conversation.
+  /**
+   * "View Message" opens the conversation, not the booking.
+   *
+   * It used to open the details sheet, which is the booking's own screen —
+   * the driver then had to find and tap Message Mechanic, and landed on a
+   * ticket list after that. Two screens between a tap that says "view
+   * message" and the message. This goes straight there.
+   */
+  const chatSheetRef = useRef<MessageShopSheetRef>(null);
   const handleMessageShop = useCallback(
     (bookingId: string) => {
       const booking = allBookings.find((b) => b.id === bookingId);
-      if (booking) detailsSheetRef.current?.open(booking);
+      if (!booking) return;
+      // A quote request has no shop yet, so there is no thread to open;
+      // the details sheet is the only useful destination.
+      if (!booking.shopId) {
+        detailsSheetRef.current?.open(booking);
+        return;
+      }
+      chatSheetRef.current?.open({
+        bookingId: booking.id,
+        shopId: booking.shopId,
+        status: booking.status,
+        mechanicName: booking.mechanicName,
+        shopName: booking.shopName,
+        mechanicImage: booking.mechanicImage,
+        vehicleLabel:
+          [booking.carYear, booking.carModel].filter(Boolean).join(" ") || undefined,
+        serviceLabel: (booking.services ?? []).join(" \u00b7 ") || undefined,
+        focus: "thread",
+      });
     },
     [allBookings],
   );
@@ -637,9 +678,6 @@ export default function BookingsScreen() {
               ) : (
                 <>
                   <CustomerLateBanner onReschedule={(bookingId) => handleReschedule(String(bookingId))} />
-                  {/* A sample of the real card, only while the tour is on the
-                      step that explains it. See CoachDemoBooking. */}
-                  {showCoachDemoBooking ? <CoachDemoBooking /> : null}
                   {bookings.length > 0 ? (
                     bookings.map((booking, bookingIdx) => {
                       const card =
@@ -669,7 +707,17 @@ export default function BookingsScreen() {
                           onToggleFavorite={handleToggleFavorite}
                         />
                       );
-                      return card;
+                      // The "your booking lives here" hint points at the
+                      // first card. No sample card any more — this hint only
+                      // fires once they actually have a booking, so the real
+                      // one is always there to point at.
+                      return bookingIdx === 0 ? (
+                        <CoachTarget key={booking.id} id="bookings.live" radius={20}>
+                          {card}
+                        </CoachTarget>
+                      ) : (
+                        card
+                      );
                     })
                   ) : (
                     <View style={styles.emptyState}>
@@ -704,6 +752,10 @@ export default function BookingsScreen() {
     />
 
     <BookingDetailsSheet ref={detailsSheetRef} />
+      {/* Mounted here as well as inside the details sheet, so a card's
+          "View Message" can open the thread without presenting the booking
+          screen first. */}
+      <MessageShopSheet ref={chatSheetRef} />
 
     <QuoteListSheet ref={quoteListSheetRef} onQuoteUnavailable={handleQuoteUnavailable} />
 

@@ -45,6 +45,35 @@ import { tierValidator } from "./lib/vehicleTiers";
 export default defineSchema({
   // Short-lived 2FA verification codes. Server-only — the client never reads
   // the code; it submits an entered value to `two_factor.verifyCode`.
+  /**
+   * SMS verification codes for the WALK-IN claim flow.
+   *
+   * Deliberately not `two_factor_codes`: that table is keyed on
+   * `clerkUserId`, and the whole point of walk-in is that the person has no
+   * account yet. The only identity they have is the tracker/claim token in
+   * their link, so that is the key.
+   *
+   * The code is stored HASHED. These rows are readable by anything with db
+   * access, and a plaintext 6-digit code next to the phone number it unlocks
+   * is a credential sitting in a table.
+   */
+  walkin_phone_codes: defineTable({
+    /** The claim/tracker token from the link — the unauthenticated identity. */
+    token: v.string(),
+    /** E.164 number the code was sent to, snapshotted so a later change to
+     *  the user row can't silently re-point an outstanding code. */
+    phone: v.string(),
+    code_hash: v.string(),
+    expires_at_ms: v.number(),
+    /** Wrong guesses so far. Burned at MAX_ATTEMPTS. */
+    attempts: v.number(),
+    /** Drives the resend cooldown the screen counts down from. */
+    last_sent_at_ms: v.number(),
+    /** How many codes we've sent for this token — the per-token send cap. */
+    sends: v.number(),
+    consumed_at_ms: v.optional(v.number()),
+  }).index("by_token", ["token"]),
+
   two_factor_codes: defineTable({
     clerkUserId: v.string(),
     method: v.string(), // "email" | "sms"
@@ -2284,6 +2313,10 @@ export default defineSchema({
     // Wave 7.3 (Day 9) — per-user PII-read counter (separate from moat).
     pii_reads_window: v.optional(v.number()),
     pii_reads_window_start: v.optional(v.number()),
+    /** When this user proved the phone on file by entering an SMS code
+     *  (walk-in claim flow). Absent = never verified; verifying is optional
+     *  by design, so absence is not a problem state. */
+    phone_verified_at_ms: v.optional(v.number()),
   })
     .index("by_clerkUserId", ["clerkUserId"])
     .index("by_isPendingDeletion", ["isPendingDeletion"])
@@ -2804,12 +2837,51 @@ export default defineSchema({
     quote_revision: v.optional(v.number()),
     tire_quote_response_id: v.optional(v.id("tire_quote_responses")),
     rotor_quote_response_id: v.optional(v.id("rotor_quote_responses")),
+    // Liveness lease (bug #393). A client that opts in (`holdSlot({ lease:
+    // true })`) gets a short `expires_at` it must keep extending through
+    // `touchSlotHold` while the checkout screen is alive; `hard_expires_at`
+    // caps the total at the Director TTL. A killed app stops heartbeating, so
+    // its hold stops blocking within one lease instead of the full TTL.
+    // Absent on legacy (non-lease) holds, whose `expires_at` IS the TTL.
+    lease_ms: v.optional(v.number()),
+    hard_expires_at: v.optional(v.number()),
+    last_seen_at: v.optional(v.number()),
   })
     .index("by_shop_and_date", ["shop_id", "date"]) // availability read
     .index("by_expiry", ["expires_at"]) // cron sweep
     .index("by_session", ["session_id"])
+    .index("by_held_by", ["held_by"]) // per-customer supersede on relaunch (#393)
     .index("by_tire_quote_response", ["tire_quote_response_id"])
     .index("by_rotor_quote_response", ["rotor_quote_response_id"]),
+
+  // The $20 checkout authorization placed BEFORE a booking row exists
+  // (payments_stripe.preauthorizePaymentForBooking). If the app dies between
+  // that Stripe call and the booking commit, the PaymentIntent has no payments
+  // row, the webhook can't match it, and the card stays held ~7 days. Each
+  // prebooking PI gets a row here and a scheduled reaper: the booking commit
+  // flips it to `linked` in the same transaction that inserts the payments row;
+  // the reaper claims `authorizing` rows (→ `reaping`) and cancels the PI.
+  // Reading this row inside both mutations makes OCC serialize "link" against
+  // "reap", so a PI is never cancelled under a booking that just used it.
+  prebooking_authorizations: defineTable({
+    payment_intent_id: v.string(),
+    user_id: v.id("users"),
+    shop_id: v.optional(v.id("shops")),
+    attempt_id: v.optional(v.string()),
+    state: v.union(
+      v.literal("authorizing"),
+      v.literal("linked"),
+      v.literal("reaping"),
+      v.literal("cancelled"),
+      v.literal("cancel_failed"),
+    ),
+    linked_booking_id: v.optional(v.id("bookings")),
+    reap_after_ms: v.number(),
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_payment_intent", ["payment_intent_id"])
+    .index("by_state_and_reap_after", ["state", "reap_after_ms"]),
 
   // ===== BOOKINGS & PAYMENTS =====
 
@@ -5198,6 +5270,36 @@ export default defineSchema({
     created_at: v.number(),
   }).index("by_booking", ["booking_id"]),
 
+  // A mechanic's explicit Pause on a running job (bug #348). Unlike the flag
+  // sheet above, Pause is deliberate intent that lasts until Resume, so the row
+  // is OPEN (`closed_at` unset) while paused — that is what lets every screen
+  // (overlay, drawer pill, header strip, dashboard) read the same paused state
+  // back on mount. Open rows are bounded: the job clock clamps a manual span at
+  // MAX_MANUAL_PAUSE_MS and a scheduled auto-close ends a forgotten pause, and
+  // applyBookingStatusTransition closes any open row when the job leaves
+  // in_progress. Merged with job_blockers + job_admin_pauses by lib/jobClock.
+  job_pauses: defineTable({
+    booking_id: v.id("bookings"),
+    job_actual_id: v.optional(v.id("job_actuals")),
+    shop_id: v.id("shops"),
+    mechanic_id: v.optional(v.id("mechanics")),
+    reason: v.optional(v.string()),
+    opened_at: v.number(),
+    opened_by_user_id: v.id("users"),
+    closed_at: v.optional(v.number()),
+    closed_by_user_id: v.optional(v.id("users")),
+    close_reason: v.optional(
+      v.union(
+        v.literal("resumed"),
+        v.literal("job_left_in_progress"),
+        v.literal("auto_closed"),
+      ),
+    ),
+    created_at: v.number(),
+  })
+    .index("by_booking", ["booking_id"])
+    .index("by_booking_open", ["booking_id", "closed_at"]),
+
   // Audit trail for pseudo-VIN → real-VIN re-keys (Off-Catalog Work spec, §5).
   //
   // A walk-in entered without a valid VIN gets a placeholder, and every row about
@@ -6642,6 +6744,10 @@ export default defineSchema({
     // Optional OEM part numbers the customer is disputing.
     disputed_part_keys: v.optional(v.array(v.string())),
     notes: v.optional(v.string()),
+    /** Photos the customer attached. Part of the v1 scope for #374 — the
+     *  notes placeholder already invited them long before they could be sent.
+     *  Capped at 4 on the client and again server-side. */
+    photo_ids: v.optional(v.array(v.id("_storage"))),
 
     // "open" | "in_review" | "resolved_refund" | "resolved_no_refund"
     // | "withdrawn"
@@ -6649,7 +6755,13 @@ export default defineSchema({
 
     filed_at_ms: v.number(),
     resolved_at_ms: v.optional(v.number()),
+    /** @deprecated Wrong table. A dispute is resolved by OPS, who live in
+     *  `director_users`, not `users`. Kept for rows written before the role
+     *  gate landed — where it recorded the CUSTOMER, since resolveDispute was
+     *  callable by any signed-in user. New rows write
+     *  `resolved_by_director_id`. */
     resolved_by_user_id: v.optional(v.id("users")),
+    resolved_by_director_id: v.optional(v.id("director_users")),
     resolution_notes: v.optional(v.string()),
     // "no_refund" | "partial_refund" | "full_refund"
     resolution: v.optional(v.string()),

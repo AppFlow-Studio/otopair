@@ -13,6 +13,7 @@
 import { useAction, useConvexAuth } from "convex/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/convex/_generated/api";
+import { formatBookingError } from "@/convex/lib/bookingErrors";
 
 export type SavedPaymentMethod = {
   id: string;
@@ -57,9 +58,9 @@ export function usePaymentMethodsFromConvex() {
         if (cancelledRef.current) return;
         setPaymentMethods(rows);
       })
-      .catch((err: any) => {
+      .catch((err: unknown) => {
         if (cancelledRef.current) return;
-        setError(err?.message ?? "Failed to load payment methods.");
+        setError(formatBookingError(err, "Failed to load payment methods."));
       })
       .finally(() => {
         if (!cancelledRef.current) setIsLoading(false);

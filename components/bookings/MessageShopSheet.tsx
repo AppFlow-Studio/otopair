@@ -72,6 +72,16 @@ interface OpenParams {
   vehicleLabel?: string;
   /** Service(s) being booked, e.g. "Tire Replacement". Shown in the context bar. */
   serviceLabel?: string;
+  /**
+   * Land straight in the conversation instead of the ticket list.
+   *
+   * "View Message" on a booking card is about one specific message the shop
+   * has already sent — dropping the driver on an inbox to find it again is
+   * the intermediate screen the redesign set out to remove. Generic
+   * "Contact shop" still lands on the list, where picking a thread (or
+   * starting one) is the point.
+   */
+  focus?: 'thread';
 }
 
 type SheetView = 'list' | 'intents' | 'thread';
@@ -191,11 +201,29 @@ export const MessageShopSheet = forwardRef<MessageShopSheetRef>((_props, ref) =>
   useImperativeHandle(ref, () => ({ open, close }));
 
   // Pick the landing view once tickets resolve for a freshly-opened sheet.
+  //
+  // With `focus: 'thread'` the caller is pointing at a message that already
+  // exists, so skip the list: prefer the thread with unread shop messages,
+  // and fall back to the most recently active one.
   useEffect(() => {
     if (!visible || viewInitedRef.current || ticketsLoading) return;
     viewInitedRef.current = true;
+    if (params?.focus === 'thread' && tickets.length > 0) {
+      const target =
+        [...tickets].sort(
+          (a, b) =>
+            (b.customer_unread_count ?? 0) - (a.customer_unread_count ?? 0) ||
+            (b.last_message_at ?? b.started_at ?? 0) -
+              (a.last_message_at ?? a.started_at ?? 0),
+        )[0] ?? null;
+      if (target) {
+        setActiveTicketId(String(target._id));
+        setView('thread');
+        return;
+      }
+    }
     setView(tickets.length > 0 ? 'list' : 'intents');
-  }, [visible, ticketsLoading, tickets.length]);
+  }, [visible, ticketsLoading, tickets, params?.focus]);
 
   const intents = useMemo<TicketIntent[]>(
     () => (params ? intentsForStatus(params.status) : []),

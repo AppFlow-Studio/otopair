@@ -23,6 +23,9 @@ import {
 import { useUserTopBookedServices, type QuickBookChip } from "@/hooks/useUserTopBookedServices";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { routeToNextBookingStep } from "@/lib/bookingFlowNext";
+import { dropServicesShopDoesntOffer } from "@/lib/pinnedShopCart";
+import { droppedServicesToast } from "@/lib/shopServiceCoverage";
+import { useToast } from "@/hooks/useToast";
 
 export function QuickBookRow() {
   const router = useRouter();
@@ -32,6 +35,7 @@ export function QuickBookRow() {
   // When the user entered via the shop-detail Book CTA, skip Choose
   // Mechanic and jump straight to date/time at that shop.
   const preSelectedShopId = useBookingStore((s) => s.preSelectedShopId);
+  const toast = useToast();
 
   const handleTap = useCallback(
     (chip: QuickBookChip) => {
@@ -53,9 +57,20 @@ export function QuickBookRow() {
         });
         return;
       }
+      // Pinned shop: routing skips Choose Mechanic's coverage check, so drop
+      // anything that shop doesn't offer first and say which (bug #404). An
+      // emptied cart stays here — there is nothing left to book at that shop.
+      if (preSelectedShopId) {
+        const cart = dropServicesShopDoesntOffer(preSelectedShopId);
+        if (cart.status === "checked" && cart.droppedNames.length > 0) {
+          const copy = droppedServicesToast(cart.shopName, cart.droppedNames);
+          toast.warning(copy.title, copy.body);
+          if (cart.remainingCount === 0) return;
+        }
+      }
       routeToNextBookingStep(router, preSelectedShopId);
     },
-    [router, selectedServiceIds, toggleServiceSelection, preSelectedShopId],
+    [router, selectedServiceIds, toggleServiceSelection, preSelectedShopId, toast],
   );
 
   if (isLoading || chips.length === 0) return null;

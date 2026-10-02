@@ -26,6 +26,7 @@ import {
   Dimensions,
   Alert,
   Modal,
+  Platform,
 } from 'react-native';
 
 // 2. Expo & Third-party
@@ -38,7 +39,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { Image } from 'expo-image';
-import { Camera, Check, ArrowLeft } from 'lucide-react-native';
+import { Camera, Check, ArrowLeft, Images } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as MediaLibrary from 'expo-media-library';
 
@@ -62,7 +63,7 @@ interface AIAttachmentPanelProps {
 
 interface PhotoItem {
   id: string;
-  type: 'camera' | 'photo';
+  type: 'camera' | 'library' | 'photo';
   uri?: string;
 }
 
@@ -83,6 +84,13 @@ const IMAGE_SIZE =
 const PANEL_HEIGHT = IMAGE_SIZE * 2 + PEEK_GAP + 34;
 const GRID_IMAGE_SIZE = (SCREEN_WIDTH - Spacing.md * 2 - Spacing.xs * 2) / 3;
 const SPRING_CONFIG = { damping: 18, stiffness: 180, mass: 0.8 };
+// Android has no recent-photos grid: the app doesn't hold READ_MEDIA_IMAGES
+// (blocked in app.json for Play's photo/video policy), so photos come from
+// the system Photo Picker via the library tile instead.
+const INITIAL_PHOTOS: PhotoItem[] =
+  Platform.OS === 'android'
+    ? [{ id: 'camera', type: 'camera' }, { id: 'library', type: 'library' }]
+    : [{ id: 'camera', type: 'camera' }];
 
 // ============================================================================
 // PHOTO GRID ITEM (Compact)
@@ -105,6 +113,20 @@ function PhotoGridItem({ item, onPress, isSelected }: PhotoGridItemProps) {
         onPress={() => onPress(item)}
       >
         <Camera size={20} color="#6B7280" strokeWidth={1.5} />
+      </Pressable>
+    );
+  }
+
+  if (item.type === 'library') {
+    return (
+      <Pressable
+        style={({ pressed }) => [
+          styles.cameraButton,
+          pressed && styles.photoPressed,
+        ]}
+        onPress={() => onPress(item)}
+      >
+        <Images size={20} color="#6B7280" strokeWidth={1.5} />
       </Pressable>
     );
   }
@@ -255,9 +277,7 @@ export function AIAttachmentPanel({
   selectedImages,
   onToggleImage,
 }: AIAttachmentPanelProps) {
-  const [photos, setPhotos] = useState<PhotoItem[]>([
-    { id: 'camera', type: 'camera' },
-  ]);
+  const [photos, setPhotos] = useState<PhotoItem[]>(INITIAL_PHOTOS);
   const [showFullGallery, setShowFullGallery] = useState(false);
   
   const panelHeight = useSharedValue(0);
@@ -283,6 +303,7 @@ export function AIAttachmentPanel({
   }, [visible]);
 
   const loadPhotos = async () => {
+    if (Platform.OS === 'android') return;
     try {
       const { status } = await MediaLibrary.requestPermissionsAsync();
       
@@ -340,13 +361,28 @@ export function AIAttachmentPanel({
     }
   }, [onToggleImage]);
 
+  // Android only. The system Photo Picker needs no permission.
+  const handlePickFromLibrary = useCallback(async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsMultipleSelection: true,
+      selectionLimit: Math.max(1, 10 - selectedImages.length),
+      quality: 0.8,
+    });
+    if (result.canceled) return;
+    result.assets.forEach((asset) => onToggleImage(asset.uri));
+    onClose();
+  }, [selectedImages.length, onToggleImage, onClose]);
+
   const handleItemPress = useCallback((item: PhotoItem) => {
     if (item.type === 'camera') {
       handleTakePhoto();
+    } else if (item.type === 'library') {
+      handlePickFromLibrary();
     } else if (item.uri) {
       onToggleImage(item.uri);
     }
-  }, [handleTakePhoto, onToggleImage]);
+  }, [handleTakePhoto, handlePickFromLibrary, onToggleImage]);
 
   const renderPhoto = useCallback(({ item }: { item: PhotoItem }) => {
     const isSelected = item.uri ? selectedImages.includes(item.uri) : false;
@@ -361,6 +397,7 @@ export function AIAttachmentPanel({
 
   // Open full gallery when triggered
   const openFullGallery = useCallback(() => {
+    if (Platform.OS === 'android') return;
     setShowFullGallery(true);
   }, []);
 

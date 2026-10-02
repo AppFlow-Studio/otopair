@@ -1,5 +1,7 @@
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { titleCaseVehicleName } from '@/lib/vehicleName';
 import { ActivityIndicator, BackHandler, Image, Platform, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -32,6 +34,8 @@ import { MoveRight, Star, Car, CalendarX } from 'lucide-react-native';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { useMutationWithToast } from '@/hooks/useMutationWithToast';
+import { alreadyClosedCancelCopy } from '@/lib/error-ui';
+import { formatFeeCents } from '@/constants/bookingActionPolicy';
 import { useToast } from '@/hooks/useToast';
 import { useOemServiceIntervalsBatch } from '@/hooks/useOemServiceIntervals';
 
@@ -70,9 +74,7 @@ import { ReceiptSheet } from '@/components/receipts/ReceiptSheet';
 import { useMyBookingsWithDetails } from '@/hooks/useMyBookingsWithDetails';
 import { useUserFromConvex } from '@/hooks/useUserFromConvex';
 import { TutorialOverlay } from '@/components/tutorial/TutorialOverlay';
-import { FORCE_TUTORIAL_EVERY_LAUNCH, FORCE_COACH_MARKS_EVERY_LAUNCH } from '@/constants/devFlags';
-import { hasSeenCoachTour } from '@/components/coach/CoachTour';
-import { useCoachTourStore } from '@/stores/useCoachTourStore';
+import { FORCE_TUTORIAL_EVERY_LAUNCH } from '@/constants/devFlags';
 import { useStagedLocation } from '@/hooks/useStagedLocation';
 import * as SecureStore from 'expo-secure-store';
 
@@ -144,6 +146,14 @@ import { ProviderTypesSection } from "@/components/home/ProviderTypesSection";
 import { VehicleMaintenanceCard } from "@/components/home/VehicleMaintenanceCard";
 import { NowTierCallout } from "@/components/home/NowTierCallout";
 import { OtoPairIcon } from "@/components/icons/oto-pair";
+import { tutorialSeenKey } from "@/lib/tutorialSeen";
+
+// Moved to lib/tutorialSeen.ts — CoachMarkHost needs the same answer for its
+// `first_run` trigger, and two readers of one flag should not each carry their
+// own copy of the key. See that file for why it is namespaced per user (#306).
+
+const TUTORIAL_STAMP_ATTEMPTS = 4;
+const TUTORIAL_STAMP_RETRY_MS = 1500;
 
 function formatBookingDate(dateStr: string): string {
   const [y, m, d] = dateStr.split('-').map(Number);
@@ -474,50 +484,79 @@ export default function HomeScreen() {
   // elements it is pointing at.
   const searchAnchor = useCoachAnchor("home.search", 16);
   const priorityAnchor = useCoachAnchor("home.priority", 22);
-  const startCoachTour = useCoachTourStore((s) => s.start);
-  const coachRunning = useCoachTourStore((s) => s.running);
   const markTutorialSeen = useMutation(api.users.markTutorialSeen);
   const [tutorialDismissed, setTutorialDismissed] = useState(false);
-  // FORCE_TUTORIAL_EVERY_LAUNCH (dev only) ignores the stamp so the tour
-  // replays on every reload while it is being worked on.
-  const showTutorial =
-    !!me &&
-    (FORCE_TUTORIAL_EVERY_LAUNCH ||
-      (me as { tutorialSeenAt?: number }).tutorialSeenAt == null) &&
-    !tutorialDismissed;
-
-  // Settings' "Replay the app tour" clears the server stamp. Without this the
-  // local dismissal from earlier in the SAME session would still be true and
-  // the replay would silently do nothing — the one case where the two sources
-  // of truth disagree.
-  const tutorialSeenAt = (me as { tutorialSeenAt?: number } | null | undefined)?.tutorialSeenAt;
-  useEffect(() => {
-    if (tutorialSeenAt == null) setTutorialDismissed(false);
-  }, [tutorialSeenAt]);
-
   /**
-   * The spotlight tour FOLLOWS the phone-mock tour rather than replacing it:
-   * the mock explains what Otopair does, this points at where it is.
+   * Local mirror of the seen stamp. `null` = still reading.
    *
-   * Gated on the phone tour being finished rather than chained to its
-   * dismiss callback, because the closing card's primary action is "Add my
-   * car" — that leaves Home entirely, and a tour started on the way out
-   * would spotlight a screen the driver is no longer looking at. Checking
-   * on focus instead means it waits for them to come back.
+   * The server stamp is the durable record, but it was the ONLY record, and
+   * the write that sets it was fire-and-forget with a swallowed catch.
+   * markTutorialSeen throws "Not authenticated" until the Clerk JWT reaches
+   * Convex — the same first-run lag behind #252 — so on a cold first run the
+   * stamp simply never landed and nothing said so.
+   *
+   * With no stamp the tour came back twice over: on relaunch, and on any
+   * remount of Home, because `tutorialDismissed` is component state and
+   * vehicle setup unmounts this screen. Two symptoms, one missing write.
    */
+  const [tutorialSeenLocal, setTutorialSeenLocal] = useState<boolean | null>(null);
+
+  /** Convex user id — namespaces the local mirror so it belongs to ONE
+   *  account, like the server stamp it mirrors. Declared above the effect
+   *  that reads it and listed in its deps: `me` resolves asynchronously, so
+   *  a mount-only read would run while this is still null and never re-run,
+   *  leaving the gate shut and the tour permanently hidden. */
+  const meId = (me as { _id?: string } | null | undefined)?._id ?? null;
+
   useEffect(() => {
-    if (showTutorial || coachRunning) return;
-    if (!FORCE_COACH_MARKS_EVERY_LAUNCH && tutorialSeenAt == null) return;
     let cancelled = false;
-    (async () => {
-      const seen = FORCE_COACH_MARKS_EVERY_LAUNCH ? false : await hasSeenCoachTour();
-      if (cancelled || seen) return;
-      startCoachTour();
-    })();
+    if (!meId) {
+      // No user yet — leave the flag null so the gate stays closed rather
+      // than reading someone else's answer.
+      setTutorialSeenLocal(null);
+      return;
+    }
+    AsyncStorage.getItem(tutorialSeenKey(meId))
+      .then((v) => {
+        if (!cancelled) setTutorialSeenLocal(v === "1");
+      })
+      .catch(() => {
+        if (!cancelled) setTutorialSeenLocal(false);
+      });
     return () => {
       cancelled = true;
     };
-  }, [showTutorial, coachRunning, tutorialSeenAt, startCoachTour]);
+  }, [meId]);
+
+  const tutorialSeenAt = (me as { tutorialSeenAt?: number } | null | undefined)?.tutorialSeenAt;
+
+  // FORCE_TUTORIAL_EVERY_LAUNCH (dev only) ignores the stamp so the tour
+  // replays on every reload while it is being worked on. `=== false` rather
+  // than `!tutorialSeenLocal` so the tour cannot flash during the read.
+  const showTutorial =
+    !!me &&
+    (FORCE_TUTORIAL_EVERY_LAUNCH ||
+      (tutorialSeenAt == null && tutorialSeenLocal === false)) &&
+    !tutorialDismissed;
+
+  /**
+   * Settings' "Replay the app tour" clears the server stamp, and the local
+   * mirror has to follow or replay would silently do nothing.
+   *
+   * Keyed on the TRANSITION number -> null, not on `== null`. A plain null
+   * check also fires on first run, before anything has ever been stamped,
+   * which would wipe the local flag we just wrote and hand the bug straight
+   * back.
+   */
+  const prevSeenAtRef = useRef<number | null | undefined>(undefined);
+  useEffect(() => {
+    const prev = prevSeenAtRef.current;
+    prevSeenAtRef.current = tutorialSeenAt ?? null;
+    if (prev == null || tutorialSeenAt != null) return;
+    setTutorialDismissed(false);
+    setTutorialSeenLocal(false);
+    if (meId) void AsyncStorage.removeItem(tutorialSeenKey(meId)).catch(() => {});
+  }, [tutorialSeenAt]);
 
   const dismissTutorial = useCallback(
     (_reason: 'completed' | 'skipped') => {
@@ -529,7 +568,26 @@ export default function HomeScreen() {
       // marked as having seen a tour it is about to be shown again, and
       // the flag has to be removed before the real gate can be trusted.
       if (FORCE_TUTORIAL_EVERY_LAUNCH) return;
-      void markTutorialSeen({}).catch(() => {});
+
+      setTutorialSeenLocal(true);
+      if (meId) void AsyncStorage.setItem(tutorialSeenKey(meId), "1").catch(() => {});
+
+      // Retry rather than swallow. The usual failure is auth not yet
+      // propagated to Convex, which resolves on its own within seconds — the
+      // old single attempt just happened to land inside that window.
+      void (async () => {
+        for (let attempt = 0; attempt < TUTORIAL_STAMP_ATTEMPTS; attempt++) {
+          try {
+            await markTutorialSeen({});
+            return;
+          } catch {
+            await new Promise((r) => setTimeout(r, TUTORIAL_STAMP_RETRY_MS * (attempt + 1)));
+          }
+        }
+        if (__DEV__) {
+          console.warn("[tutorial] could not stamp tutorialSeenAt; local flag holds the line");
+        }
+      })();
     },
     [markTutorialSeen],
   );
@@ -772,7 +830,7 @@ export default function HomeScreen() {
         const v = r.vehicle;
         const o = r.ownership;
         const meta = v?.metadata as { make?: string; model?: string } | undefined;
-        const titleCase = (s: string) => s.toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+        const titleCase = titleCaseVehicleName;
         const make = meta?.make ? titleCase(meta.make) : "";
         const model = meta?.model ? titleCase(meta.model) : "";
         const rawName = make && model ? `${make}\n${model}` : o?.nickname ?? "My Vehicle";
@@ -1195,21 +1253,36 @@ export default function HomeScreen() {
   // get the cancelBooking mutation; tire-quote-prefixed local IDs are
   // out of scope here (those don't surface as upcoming on home).
   const cancelConvexBooking = useMutationWithToast(api.bookings.cancelBooking, {
-    success: "Booking cancelled.",
+    success: ({ result }) => {
+      // Someone else ended it first (bug #394): say who, never "Booking
+      // cancelled" or a fee for a cancel this tap didn't make.
+      const closed = alreadyClosedCancelCopy(result);
+      if (closed) return { title: closed, variant: "info" };
+      return {
+        title:
+          result && result.feeCents > 0
+            ? `Booking cancelled — ${formatFeeCents(result.feeCents)} fee charged.`
+            : "Booking cancelled.",
+      };
+    },
     successIcon: CalendarX,
-    error: "Couldn't cancel this booking. Try again.",
+    // FEE_CHANGED / JOB_ALREADY_STARTED / VEHICLE_CHECKED_IN carry their own
+    // sentence; BookingCard re-opens the confirm at the new fee on FEE_CHANGED.
+    error: (ctx) => ({ title: ctx.message }),
+    errorFallback: "Couldn't cancel this booking. Try again.",
   });
   const handleAppointmentCancel = useCallback(
     (bookingId: string, feeAcknowledgedCents?: number) => {
       const isLocalId = bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_");
-      if (!isLocalId) {
-        // Forward the late-cancel fee BookingCard disclosed so the server's
-        // stale-fee guard can reject if the fee rose past what was shown.
-        void cancelConvexBooking({
-          bookingId: bookingId as Id<"bookings">,
-          feeAcknowledgedCents,
-        });
-      }
+      if (isLocalId) return undefined;
+      // Forward the late-cancel fee BookingCard disclosed so the server's
+      // stale-fee guard can reject if the fee rose past what was shown. The
+      // promise is returned so BookingCard can await it (reset its dim, and
+      // re-confirm on FEE_CHANGED); BookingCard catches the rejection.
+      return cancelConvexBooking({
+        bookingId: bookingId as Id<"bookings">,
+        feeAcknowledgedCents,
+      });
     },
     [cancelConvexBooking],
   );

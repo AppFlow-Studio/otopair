@@ -18,9 +18,10 @@ import { ActivityIndicator, AppState, BackHandler, Platform, StyleSheet, TextInp
 
 // 2. Expo & Third-party
 import { useFocusEffect, useLocalSearchParams } from "expo-router";
+import { useIsFocused } from "@react-navigation/native";
 import { useMutation, useQuery } from "convex/react";
 import { useGuardedRouter as useRouter } from "@/hooks/useGuardedRouter";
-import { Calendar, Car, ChevronRight, Clock, FileText, Info, Smartphone, WifiOff } from "lucide-react-native";
+import { AlertTriangle, Calendar, Car, ChevronRight, Clock, FileText, Info, Smartphone, WifiOff } from "lucide-react-native";
 import { AppleIcon } from "@/components/icons/apple";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
@@ -35,6 +36,7 @@ import { BrandColors, ErrorOccurredModal, Spacing, Text } from "@/components/sha
 import { BookingPageHeader } from "@/components/booking/pages";
 import { CollapsibleDetail } from "@/components/booking/shared";
 import { PaymentMethodModal } from "@/components/booking/modals/PaymentMethodModal";
+import { PriceChangedSheet } from "@/components/booking/PriceChangedSheet";
 import { normalizeStripeBrand } from "@/components/payments/BrandedCardVisual";
 import { BRAND_SVG } from "@/components/payments/brandSvg";
 
@@ -45,7 +47,8 @@ import { useBookingLaborHours } from "@/hooks/useBookingLaborHours";
 import { useBookingPartsBreakdown } from "@/hooks/useBookingPartsBreakdown";
 import { useBookingQuoteFallback } from "@/hooks/useBookingQuoteFallback";
 import { useCanWrite } from "@/hooks/useConnection";
-import { useCreateBookingConvex } from "@/hooks/useCreateBookingConvex";
+import { useCheckoutServiceGate, useCreateBookingConvex } from "@/hooks/useCreateBookingConvex";
+import { useSlotHoldHeartbeat } from "@/hooks/useSlotHoldHeartbeat";
 import { useShopFixedPricesForServices } from "@/hooks/useShopFixedPricesForServices";
 import { positionFromOption } from "@/constants/serviceVariants";
 import { useWalletCheckout } from "@/hooks/useWalletCheckout";
@@ -79,7 +82,13 @@ export default function PaymentScreen() {
   // ═══════════════ HOOKS ═══════════════
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { id, confirmError } = useLocalSearchParams<{ id: string; confirmError?: string }>();
+  const { id, confirmError, sessionExpired } = useLocalSearchParams<{
+    id: string;
+    confirmError?: string;
+    /** "1" when /confirming lost the held slot and couldn't re-hold it. */
+    sessionExpired?: string;
+  }>();
+  const isFocused = useIsFocused();
 
   // ═══════════════ BOOKING STORE ═══════════════
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
@@ -118,6 +127,7 @@ export default function PaymentScreen() {
   const holdId = useBookingStore((state) => state.holdId);
   const holdExpiresAt = useBookingStore((state) => state.holdExpiresAt);
   const holdSessionId = useBookingStore((state) => state.holdSessionId);
+  const holdHardExpiresAt = useBookingStore((state) => state.holdHardExpiresAt);
   const setSlotHold = useBookingStore((state) => state.setSlotHold);
   const releaseSlotHold = useMutation(api.slotHolds.releaseSlotHold);
   // Reactive view of the hold row — flips `isExpired` / returns null when the
@@ -128,17 +138,30 @@ export default function PaymentScreen() {
   );
   const [sessionExpiredVisible, setSessionExpiredVisible] = useState(false);
 
+  // /confirming bounced back because its hold heartbeat couldn't re-hold.
+  useEffect(() => {
+    if (sessionExpired === "1") {
+      setSessionExpiredVisible(true);
+      router.setParams({ sessionExpired: undefined });
+    }
+  }, [sessionExpired, router]);
+
+  // The checkout's time limit. A leased hold (#393) keeps `holdExpiresAt` on
+  // the ~90 s lease edge; the countdown shows the Director-TTL cap instead
+  // (store, else the live hold row), which is what "Held m:ss" means.
+  const holdLimitAt = holdHardExpiresAt ?? holdState?.hardExpiresAt ?? holdExpiresAt;
+
   // 1s tick off the absolute expiry timestamp — timezone-safe (never derived
   // from the date/time strings, only from `expiresAt - Date.now()`).
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
-    if (!holdExpiresAt) return;
+    if (!holdLimitAt) return;
     const t = setInterval(() => setNowMs(Date.now()), 1000);
     return () => clearInterval(t);
-  }, [holdExpiresAt]);
-  const remainingMs = holdExpiresAt ? Math.max(0, holdExpiresAt - nowMs) : 0;
-  const holdExpired = holdExpiresAt != null && remainingMs <= 0;
-  const countdown = holdExpiresAt
+  }, [holdLimitAt]);
+  const remainingMs = holdLimitAt ? Math.max(0, holdLimitAt - nowMs) : 0;
+  const holdExpired = holdLimitAt != null && remainingMs <= 0;
+  const countdown = holdLimitAt
     ? `${Math.floor(remainingMs / 60000)}:${String(Math.floor((remainingMs % 60000) / 1000)).padStart(2, "0")}`
     : null;
 
@@ -721,20 +744,45 @@ export default function PaymentScreen() {
     router.back();
   }, [router, skippedBookingDetails, setBookingStage, holdId, holdSessionId, releaseSlotHold, setSlotHold]);
 
-  // CRITICAL — expiry re-check on resume. If the customer backgrounds the app
-  // mid-checkout and the 15-min hold lapses (or another session takes the
-  // slot), bounce them back to slot selection with a "session expired" prompt.
-  // Runs on foreground + screen-focus. `holdState === undefined` means the
+  // Hold liveness (#393). Normal checkouts hold on a ~90 s lease the
+  // heartbeat keeps alive while this screen is focused and foregrounded; if
+  // the lease lapsed (backgrounded, janitor) it silently re-holds the same
+  // slot and only a failed re-hold shows "Session expired". While /confirming
+  // is on top it runs its own heartbeat, so this one pauses (unfocused).
+  // Quote-accept holds have no lease — their TTL drives the quote grace.
+  const handleHoldLost = useCallback(() => {
+    setSessionExpiredVisible(true);
+  }, []);
+  const { beatNow } = useSlotHoldHeartbeat(holdId, holdSessionId, {
+    enabled: isFocused && !isQuoteAccept,
+    onExpired: handleHoldLost,
+  });
+
+  // CRITICAL — expiry re-check on resume. Runs on foreground + screen-focus.
+  // Leased holds defer to the heartbeat (touch now → silent re-hold → modal
+  // only on failure). Quote-accept holds keep the original rule: if the hold
+  // lapsed (or another session took the slot), bounce back to slot selection
+  // with a "session expired" prompt. `holdState === undefined` means the
   // query is still loading — don't bounce yet.
   const recheckHold = useCallback(() => {
     if (!holdId) return;
+    if (!isQuoteAccept) {
+      beatNow();
+      return;
+    }
     const locallyExpired = holdExpiresAt != null && Date.now() >= holdExpiresAt;
     const serverGone = holdState === null || holdState?.isExpired === true;
     if (locallyExpired || (holdState !== undefined && serverGone)) {
       setSlotHold(null);
       setSessionExpiredVisible(true);
     }
-  }, [holdId, holdExpiresAt, holdState, setSlotHold]);
+  }, [holdId, isQuoteAccept, beatNow, holdExpiresAt, holdState, setSlotHold]);
+
+  // The visible countdown ran out while on screen: check now instead of
+  // waiting for the next beat, so the customer isn't left on "Hold expired".
+  useEffect(() => {
+    if (holdExpired && !isQuoteAccept) beatNow();
+  }, [holdExpired, isQuoteAccept, beatNow]);
 
   useEffect(() => {
     const sub = AppState.addEventListener("change", (s) => {
@@ -748,6 +796,87 @@ export default function PaymentScreen() {
   }, [recheckHold]));
 
   const canWrite = useCanWrite();
+
+  // ═══════════════ LIVE SERVICE GATE (#404) ═══════════════
+  // Can this shop book every service in the cart right now? Reactive to the
+  // shop's Settings → Services edits. While blocked, Authorize is disabled
+  // with the server's sentence and a one-tap fix. Loading or a query error
+  // never blocks — the commit-time SERVICE_NOT_OFFERED guard is the authority.
+  const serviceGate = useCheckoutServiceGate(!isQuoteAccept);
+  const removeSelectedServices = useBookingStore((state) => state.removeSelectedServices);
+  const handleRemoveBlockedServices = useCallback(() => {
+    if (serviceGate.blockedServiceIds.length === 0) return;
+    removeSelectedServices(serviceGate.blockedServiceIds);
+    if (useBookingStore.getState().selectedServiceIds.length === 0) {
+      // Nothing left to book at this shop — release the slot and pick again.
+      if (holdId && holdSessionId) {
+        releaseSlotHold({ holdId: holdId as Id<"slot_holds">, session_id: holdSessionId }).catch(() => {});
+        setSlotHold(null);
+      }
+      router.replace("/(booking-flow)/choose-mechanic");
+    }
+  }, [serviceGate.blockedServiceIds, removeSelectedServices, holdId, holdSessionId, releaseSlotHold, setSlotHold, router]);
+
+  // ═══════════════ PRICE SNAPSHOT (#390) ═══════════════
+  // Freeze exactly what this screen rendered at the Authorize tap: per line
+  // the shop's set price (fixed-price map, cents) or the estimate range + the
+  // labor the create payload sends as `labor_cost`, plus the total shown.
+  // useCreateBookingConvex sends it as `expected_price`; the confirm sheet
+  // quotes it and pauses if the live price moves. Never rebuilt later.
+  const setCheckoutPriceSnapshot = useBookingStore((state) => state.setCheckoutPriceSnapshot);
+  const displayedTotalFormatted = breakdown.isLaborOnly
+    ? breakdown.rangeFromFormatted
+    : breakdown.rangeFormatted;
+  const captureCheckoutPriceSnapshot = useCallback(() => {
+    if (isQuoteAccept) {
+      // Quote accepts commit the shop's firm quote; no expected_price.
+      setCheckoutPriceSnapshot(null);
+      return;
+    }
+    const toCents = (dollars: number) => Math.round(dollars * 100);
+    const lines = selectedServices
+      // Mock `svc_*` ids can't pass the server's v.id("services") validator.
+      .filter((service) => !String(service.id).startsWith("svc_"))
+      .map((service) => {
+        const shopPrice = fixedPriceMap.get(String(service.id));
+        if (shopPrice) {
+          return {
+            service_id: service.id as Id<"services">,
+            basis: "shop_price" as const,
+            low_cents: toCents(shopPrice.lowDollars),
+            high_cents: toCents(shopPrice.highDollars),
+          };
+        }
+        const lineRange = getServiceLineRange(service);
+        return {
+          service_id: service.id as Id<"services">,
+          basis: "estimate" as const,
+          low_cents: toCents(lineRange.low),
+          high_cents: toCents(lineRange.high),
+          labor_cents: toCents(getServiceLaborCost(service)),
+        };
+      });
+    setCheckoutPriceSnapshot({
+      price: {
+        version: 1,
+        lines,
+        total_low_cents: toCents(breakdown.rangeLow),
+        total_high_cents: toCents(breakdown.rangeHigh),
+      },
+      formatted: displayedTotalFormatted,
+      capturedAt: Date.now(),
+    });
+  }, [
+    isQuoteAccept,
+    selectedServices,
+    fixedPriceMap,
+    getServiceLineRange,
+    getServiceLaborCost,
+    breakdown.rangeLow,
+    breakdown.rangeHigh,
+    displayedTotalFormatted,
+    setCheckoutPriceSnapshot,
+  ]);
 
   const handleConfirmPayment = useCallback(() => {
     if (!canWrite) return;
@@ -805,12 +934,15 @@ export default function PaymentScreen() {
   // rather than dead-ending.
   const handleAuthorize = useCallback(() => {
     if (!canWrite) return;
+    if (serviceGate.blocked) return;
     if (!selectedMechanicId && !selectedMechanicSlot?.shopId) return;
     if (!bookingVehicleVin || !selectedVehicle) {
       setErrorMessage("This booking is no longer attached to a vehicle. Please reselect the services and try again.");
       setErrorModalVisible(true);
       return;
     }
+    // Before BOTH branches — a wallet booking must carry the snapshot too.
+    captureCheckoutPriceSnapshot();
     if (walletIntent === "apple_pay" && applePaySupported) {
       handleApplePay();
       return;
@@ -822,6 +954,8 @@ export default function PaymentScreen() {
     handleConfirmPayment();
   }, [
     canWrite,
+    serviceGate.blocked,
+    captureCheckoutPriceSnapshot,
     selectedMechanicId,
     selectedMechanicSlot?.shopId,
     bookingVehicleVin,
@@ -854,6 +988,34 @@ export default function PaymentScreen() {
     }, [errorModalVisible, handleBack])
   );
 
+  // ═══════════════ PRICE CHANGED (#390) ═══════════════
+  // /confirming came back PRICE_CHANGED. Ask before re-committing: Continue
+  // re-snapshots what this screen now renders (live) and re-opens
+  // /confirming with a fresh attempt id; Back returns to service selection.
+  const checkoutPriceChange = useBookingStore((state) => state.checkoutPriceChange);
+  const setCheckoutPriceChange = useBookingStore((state) => state.setCheckoutPriceChange);
+  const priceChangeNewFormatted = checkoutPriceChange
+    ? displayedTotalFormatted !== checkoutPriceChange.previousFormatted
+      ? displayedTotalFormatted
+      : (checkoutPriceChange.newFormatted ?? displayedTotalFormatted)
+    : null;
+  const handlePriceChangeContinue = useCallback(() => {
+    setCheckoutPriceChange(null);
+    handleAuthorize();
+  }, [setCheckoutPriceChange, handleAuthorize]);
+  const handlePriceChangeBack = useCallback(() => {
+    setCheckoutPriceChange(null);
+    setCheckoutPriceSnapshot(null);
+    if (holdId && holdSessionId) {
+      releaseSlotHold({ holdId: holdId as Id<"slot_holds">, session_id: holdSessionId }).catch(() => {});
+      setSlotHold(null);
+    }
+    router.replace("/(booking-flow)/select-services");
+  }, [setCheckoutPriceChange, setCheckoutPriceSnapshot, holdId, holdSessionId, releaseSlotHold, setSlotHold, router]);
+  const handlePriceChangeDismiss = useCallback(() => {
+    setCheckoutPriceChange(null);
+  }, [setCheckoutPriceChange]);
+
   // ═══════════════ RENDER ═══════════════
   return (
     <View style={styles.container}>
@@ -863,7 +1025,7 @@ export default function PaymentScreen() {
         title="Review & Pay"
         onBack={handleBack}
         rightAction={
-          holdExpiresAt != null ? (
+          holdLimitAt != null ? (
             <View style={[styles.holdBadge, holdExpired && styles.holdBadgeExpired]}>
               <Clock size={12} color={holdExpired ? "#B91C1C" : BrandColors.secondary} />
               <Text
@@ -1144,7 +1306,14 @@ export default function PaymentScreen() {
                       amount above. Rate suffix surfaces the per-tier labor
                       rate so customers see what's being applied — different
                       vehicle tiers get different shop rates. */}
-                  Labor ({formatDurationForCar(breakdown.laborHours) ?? "0 mins"}
+                  {/* "Includes" is load-bearing (#322/#417): this amount is
+                      ALREADY inside the service prices listed above, but it sat
+                      in the same column as Taxes & Fees — which genuinely adds —
+                      so it read as a second charge ("Tire Rotation $75.00", then
+                      "Labor $75.00", under a total containing one of them).
+                      The same fix (04b27357) landed in ReviewPayContent.tsx,
+                      which no longer renders; this is the live screen. */}
+                  Includes labor ({formatDurationForCar(breakdown.laborHours) ?? "0 mins"}
                   {breakdown.effectiveLaborRate ? ` @ $${breakdown.effectiveLaborRate}/hr` : ""})
                 </Text>
                 <Text size="sm" weight="medium" color="#6B7280">
@@ -1363,6 +1532,24 @@ export default function PaymentScreen() {
         style={[styles.footer, { paddingBottom: insets.bottom + Spacing.md }]}
         pointerEvents="box-none"
       >
+        {serviceGate.blocked && serviceGate.message ? (
+          <View style={styles.serviceGateNote} accessibilityRole="alert">
+            <AlertTriangle size={16} color="#92400E" />
+            <View style={styles.serviceGateText}>
+              <Text size="sm" weight="medium" color="#92400E">
+                {serviceGate.message}
+              </Text>
+              <TouchableOpacity onPress={handleRemoveBlockedServices} hitSlop={8}>
+                <Text size="sm" weight="bold" color="#1D4ED8">
+                  {serviceGate.blockedServiceIds.length === 1
+                    ? "Remove it from this booking"
+                    : "Remove them from this booking"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
+
         {!canWrite ? (
           <View style={styles.offlineNote}>
             <WifiOff size={16} color="#92400E" />
@@ -1375,11 +1562,12 @@ export default function PaymentScreen() {
         <TouchableOpacity
           style={[
             styles.authorizeButton,
-            (isSubmitting || walletPending || !canWrite) && styles.confirmButtonDisabled,
+            (isSubmitting || walletPending || !canWrite || serviceGate.blocked) &&
+              styles.confirmButtonDisabled,
           ]}
           onPress={handleAuthorize}
           activeOpacity={0.9}
-          disabled={isSubmitting || walletPending || !canWrite}
+          disabled={isSubmitting || walletPending || !canWrite || serviceGate.blocked}
         >
           {isSubmitting || walletPending ? (
             <ActivityIndicator color={BrandColors.white} size="small" />
@@ -1424,8 +1612,21 @@ export default function PaymentScreen() {
         onClose={() => setErrorModalVisible(false)}
         onRetry={() => {
           setErrorModalVisible(false);
+          if (serviceGate.blocked) return;
+          // A retry is a new commit attempt: re-snapshot what's on screen now.
+          captureCheckoutPriceSnapshot();
           handleConfirmPayment();
         }}
+      />
+
+      <PriceChangedSheet
+        visible={checkoutPriceChange != null && isFocused}
+        message={checkoutPriceChange?.message ?? ""}
+        previousFormatted={checkoutPriceChange?.previousFormatted ?? null}
+        newFormatted={priceChangeNewFormatted}
+        onContinue={handlePriceChangeContinue}
+        onBack={handlePriceChangeBack}
+        onDismiss={handlePriceChangeDismiss}
       />
 
       {/* Held-slot expired: no retry-in-place — the slot may be gone, so send
@@ -1586,6 +1787,22 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: BorderRadius.full,
     backgroundColor: "#EFF6FF",
+  },
+  serviceGateNote: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    alignSelf: "stretch",
+    padding: 12,
+    marginBottom: 8,
+    borderRadius: 12,
+    backgroundColor: "#FFFBEB",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#FCD34D",
+  },
+  serviceGateText: {
+    flex: 1,
+    gap: 4,
   },
   holdBadgeExpired: {
     backgroundColor: "#FEE2E2",

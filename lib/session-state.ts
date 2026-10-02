@@ -1,5 +1,6 @@
 import { clearOnboardingResumeState } from "@/lib/onboarding-resume";
 import { purgeOfflineSessionCache } from "@/lib/offlineSessionCache";
+import { releaseHeldSlot } from "@/lib/releaseHeldSlot";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
@@ -8,6 +9,10 @@ import { useSettingsOverlayStore } from "@/stores/useSettingsOverlayStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 
 export function clearUserScopedStores() {
+  // Free an in-flight checkout's slot hold before the reset forgets its id
+  // (bug #393) — otherwise signing out mid-checkout blocks the shop's slot
+  // for the full hold TTL. Fire-and-forget; never delays sign-out.
+  releaseHeldSlot();
   useBookingStore.getState().resetBookingFlow();
   useBookingStore.getState().clearBookingState();
   useVehicleStore.getState().clearVehicles();

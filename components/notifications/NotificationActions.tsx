@@ -19,6 +19,10 @@ import { useMutation } from "convex/react";
 
 import { Text } from "@/components/shared-ui";
 import { api } from "@/convex/_generated/api";
+import {
+  formatBookingError,
+  isStaleStateError,
+} from "@/convex/lib/bookingErrors";
 import { BorderRadius, BrandColors, Spacing } from "@/constants/theme";
 import type { NotificationRow } from "@/hooks/useNotificationsFromConvex";
 import type { NotificationAction } from "./notificationShapes";
@@ -45,19 +49,41 @@ export function NotificationActions({
 
   const [pending, setPending] = useState<null | "primary" | "secondary">(null);
   const [error, setError] = useState<string | null>(null);
+  // The decision lost a race (the shop re-proposed / withdrew, or the booking
+  // ended): show the server's "already handled" sentence as information and
+  // retire the buttons rather than presenting it as a failure (bug #403).
+  const [handled, setHandled] = useState<string | null>(null);
 
   const bookingId = row.booking_id;
   if (!bookingId) return null;
 
-  const run = async (slot: "primary" | "secondary", fn: () => Promise<any>) => {
-    if (pending) return;
+  // The proposal this card announced (enqueued with the notification). Sent
+  // with Accept/Decline so the answer can't land on a time the shop changed
+  // after the card was written. Absent on old rows → the server skips it.
+  const proposal = (row.payload ?? {}) as {
+    newScheduledDate?: unknown;
+    newScheduledTime?: unknown;
+  };
+  const expectedProposal = {
+    expectedScheduledDate:
+      typeof proposal.newScheduledDate === "string" ? proposal.newScheduledDate : undefined,
+    expectedScheduledTime:
+      typeof proposal.newScheduledTime === "string" ? proposal.newScheduledTime : undefined,
+  };
+
+  const run = async (slot: "primary" | "secondary", fn: () => Promise<unknown>) => {
+    if (pending || handled) return;
     setPending(slot);
     setError(null);
     try {
       await fn();
       onResolve();
-    } catch (e: any) {
-      setError(e?.message ?? "Something went wrong. Please try again.");
+    } catch (e) {
+      if (isStaleStateError(e)) {
+        setHandled(formatBookingError(e, "This change was already handled."));
+      } else {
+        setError(formatBookingError(e, "Something went wrong. Please try again."));
+      }
       setPending(null);
     }
   };
@@ -72,14 +98,16 @@ export function NotificationActions({
 
   if (action === "reschedule_decision") {
     primaryLabel = "Accept";
-    onPrimary = () => run("primary", () => approveReschedule({ bookingId }));
+    onPrimary = () =>
+      run("primary", () => approveReschedule({ bookingId, ...expectedProposal }));
     if (isForcedDelay) {
       secondaryLabel = "More options";
       onSecondary = onOpenOverlay;
       secondaryIsBusy = false;
     } else {
       secondaryLabel = "Decline";
-      onSecondary = () => run("secondary", () => declineReschedule({ bookingId }));
+      onSecondary = () =>
+        run("secondary", () => declineReschedule({ bookingId, ...expectedProposal }));
     }
   } else if (action === "on_my_way") {
     // Shop is waiting on a late customer. "On my way" acknowledges — the
@@ -101,6 +129,16 @@ export function NotificationActions({
   }
 
   const busy = pending != null;
+
+  if (handled) {
+    return (
+      <View style={styles.wrap}>
+        <Text size="xs" color="#6B7280" style={styles.error}>
+          {handled}
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.wrap}>
