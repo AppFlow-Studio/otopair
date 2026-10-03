@@ -49,6 +49,29 @@ export const MIN_ADVANCE_NOTICE_MINUTES = 60;
  */
 export const MIN_ADVANCE_NOTICE_LABEL = "Bookings require at least 1 hour's notice.";
 
+/** "45 min", "1 hr", "1 hr 30 min". */
+export function formatJobMinutes(min: number): string {
+  if (min < 60) return `${min} min`;
+  const hrs = Math.floor(min / 60);
+  const rem = min - hrs * 60;
+  if (rem === 0) return `${hrs} hr`;
+  return `${hrs} hr ${rem} min`;
+}
+
+/**
+ * Caption under the time grid saying what every offered start time has room
+ * for: the whole job plus the shop's gap after each job. Without it a free
+ * stretch between two bookings looks bookable when it isn't — a 75-minute
+ * gap can't take a 1-hour job once 15 minutes is kept on each side (bug
+ * #392). Pass `bufferMinutes: null` while the shop isn't loaded so the line
+ * never quotes a gap the server isn't using.
+ */
+export function slotFitNote(jobMinutes: number, bufferMinutes: number | null): string | null {
+  if (!(jobMinutes > 0)) return null;
+  const job = `Times fit your ~${formatJobMinutes(jobMinutes)} job`;
+  return bufferMinutes != null ? `${job} plus ${bufferMinutes} min between jobs.` : `${job}.`;
+}
+
 /**
  * Earliest bookable minute-of-day in local time: now + the advance-notice
  * window, rounded up to the next 15-minute slot boundary. Rounding only

@@ -270,6 +270,12 @@ export interface Shop {
   // ─── Pricing ───
   /** Hourly labor rate in dollars (for price calculation) */
   labor_rate?: number;
+
+  // ─── Scheduling ───
+  /** Raw `shops.buffer_minutes` — the gap the shop keeps after every job.
+   *  Run it through `normalizeBufferMinutes` before use: unset or an
+   *  unsupported value means the server's 10-minute default. */
+  bufferMinutes?: number | null;
 }
 
 /** Shop filter options */

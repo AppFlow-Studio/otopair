@@ -48,6 +48,7 @@ function mapConvexShopToStore(shop: Doc<"shops"> & { logoUrl?: string | null }, 
     nextAvailableSlot: shop.is_active ? null : null,
     serviceIds,
     labor_rate: shop.labor_rate,
+    bufferMinutes: shop.buffer_minutes ?? null,
   };
 }
 

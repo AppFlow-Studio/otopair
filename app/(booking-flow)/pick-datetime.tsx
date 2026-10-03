@@ -52,6 +52,7 @@ import { joinServiceNames, serviceNamesFor, servicesShopDoesntOffer } from "@/li
 import { useToast } from "@/hooks/useToast";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { buildMechanicCarouselItems } from "@/lib/buildMechanicCarouselItems";
+import { normalizeBufferMinutes } from "@/lib/schedule-overlap";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
@@ -61,10 +62,12 @@ import { useCoachAnchor } from "@/components/coach/useCoachAnchor";
 import {
   displayTimeToHHMM,
   findFirstAvailableDate,
+  formatJobMinutes,
   getPickerFloor,
   getPickerInitialMechanicId,
   MIN_ADVANCE_NOTICE_LABEL,
   minBookableHHMM,
+  slotFitNote,
   todayLocalISO,
 } from "@/utils/timeSlotUtils";
 
@@ -423,6 +426,13 @@ export default function PickDateTimeScreen() {
     return out;
   }, [rawSlots, selectedDateISO, floor]);
 
+  // Says what the grid's times have room for — the same `totalMinutes` the
+  // slot query above asks for, plus the shop's gap after each job.
+  const slotFitText = useMemo(
+    () => slotFitNote(totalMinutes, shop ? normalizeBufferMinutes(shop.bufferMinutes) : null),
+    [totalMinutes, shop],
+  );
+
   const [selectedTime, setSelectedTime] = useState<string | null>(null);
 
   // Reset time selection whenever the day changes.
@@ -464,7 +474,7 @@ export default function PickDateTimeScreen() {
 
   const summarySubtitle = useMemo(() => {
     const mechLabel = mechanic ? mechanic.name : "Any mechanic";
-    const minsText = totalMinutes > 0 ? `~${formatMinutes(totalMinutes)}` : "Time TBD";
+    const minsText = totalMinutes > 0 ? `~${formatJobMinutes(totalMinutes)}` : "Time TBD";
     if (isQuoteAccept) {
       const serviceLabel = quoteAcceptContext.quoteType === "rotor" ? "Rotor replacement" : "Tire replacement";
       return `${mechLabel} · ${serviceLabel} · ${minsText}`;
@@ -836,7 +846,7 @@ export default function PickDateTimeScreen() {
             color="#6B7280"
             style={styles.timesNote}
           >
-            {MIN_ADVANCE_NOTICE_LABEL}
+            {slotFitText ? `${slotFitText} ${MIN_ADVANCE_NOTICE_LABEL}` : MIN_ADVANCE_NOTICE_LABEL}
           </Text>
           {/* Key on the selected day so swapping dates remounts the
               grid — that re-triggers the FadeInUp cascade so the new
@@ -930,14 +940,6 @@ function isoToDate(iso: string): Date {
 function formatDateHeader(iso: string): string {
   const date = isoToDate(iso);
   return `${DAY_OF_WEEK[date.getDay()]}, ${MONTH_LABELS_LONG[date.getMonth()]} ${date.getDate()}`;
-}
-
-function formatMinutes(min: number): string {
-  if (min < 60) return `${min} min`;
-  const hrs = Math.floor(min / 60);
-  const rem = min - hrs * 60;
-  if (rem === 0) return `${hrs} hr`;
-  return `${hrs} hr ${rem} min`;
 }
 
 function findFirstMechanicForShop(
